@@ -1,12 +1,15 @@
 import React from "react";
-import GuidedCapture from "./components/GuidedCapture";
-import "./index.css";
+import CaptureDots from "./components/CaptureDots";
+import CameraCapture from "./components/CameraCapture";
+import PanoramaRenderer from "./components/PanoramaRenderer";
 
 const App = () => {
   return (
     <div>
-      <h1>360° Panorama Capture</h1>
-      <GuidedCapture />
+      <h1>360° Guided Panorama Capture</h1>
+      <CaptureDots />
+      <CameraCapture />
+      <PanoramaRenderer />
     </div>
   );
 };
