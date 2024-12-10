@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
@@ -6,13 +6,20 @@ const SceneView = () => {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const cameraRef = useRef(null);
+  const sceneRef = useRef(null);
+  const videoPlaneRef = useRef(null);
+  const capturedPlaneRef = useRef(null);
+  const videoTextureRef = useRef(null);
+
+  const [hasCaptured, setHasCaptured] = useState(false);
 
   useEffect(() => {
     // Setup scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202020);
+    sceneRef.current = scene;
 
-    // Setup camera
+    // Setup camera at the center
     const camera = new THREE.PerspectiveCamera(
       75,
       mountRef.current.clientWidth / mountRef.current.clientHeight,
@@ -92,6 +99,7 @@ const SceneView = () => {
     const videoTexture = new THREE.VideoTexture(video);
     videoTexture.minFilter = THREE.LinearFilter;
     videoTexture.magFilter = THREE.LinearFilter;
+    videoTextureRef.current = videoTexture;
 
     // Create a small plane geometry to display the camera feed
     const planeWidth = 1;
@@ -108,6 +116,7 @@ const SceneView = () => {
     // Rotate plane 180 degrees on Y to face inward toward the camera
     videoPlane.rotation.y = Math.PI; 
     scene.add(videoPlane);
+    videoPlaneRef.current = videoPlane;
 
     // Handle window resize
     const onWindowResize = () => {
@@ -139,9 +148,54 @@ const SceneView = () => {
     };
   }, []);
 
+  const captureImage = () => {
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const videoPlane = videoPlaneRef.current;
+    if (!renderer || !scene || !videoPlane) return;
+
+    // Capture the current view as an image
+    const dataURL = renderer.domElement.toDataURL('image/png');
+
+    // Create a texture from the captured image
+    const img = new Image();
+    img.onload = () => {
+      const capturedTexture = new THREE.Texture(img);
+      capturedTexture.needsUpdate = true;
+
+      // Create a plane with the captured image
+      const planeWidth = 1;
+      const planeHeight = 0.75; 
+      const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+      const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
+      const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
+
+      // Position the captured plane where the video plane currently is
+      capturedPlane.position.copy(videoPlane.position);
+      capturedPlane.rotation.copy(videoPlane.rotation);
+
+      // Add the captured plane to the scene
+      scene.add(capturedPlane);
+      capturedPlaneRef.current = capturedPlane;
+
+      // Move the video plane to the right side of the captured plane
+      // Assuming they are side by side along the X-axis
+      const spacing = 0.1; 
+      videoPlane.position.x += planeWidth + spacing;
+
+      setHasCaptured(true);
+    };
+    img.src = dataURL;
+  };
+
   return (
     <div
-      style={{ position: 'relative', width: '100%', height: '100vh', overflow: 'hidden' }}
+      style={{ 
+        position: 'relative', 
+        width: '100%', 
+        height: '100vh', 
+        overflow: 'hidden' 
+      }}
     >
       <div
         ref={mountRef}
@@ -154,12 +208,26 @@ const SceneView = () => {
           left: 0
         }}
       />
+      <button
+        onClick={captureImage}
+        style={{
+          position: 'absolute',
+          zIndex: 1,
+          top: '10px',
+          left: '10px',
+          padding: '10px',
+          background: 'white',
+          border: '1px solid #ccc',
+          cursor: 'pointer'
+        }}
+      >
+        Capture Image
+      </button>
     </div>
   );
 };
 
 export default SceneView;
-
 
 
 
