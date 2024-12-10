@@ -1,11 +1,11 @@
 import React from "react";
-import CameraPanorama from "./components/PanoramaViewer";
+import Camera360View from "./components/PanoramaViewer";
 import "./index.css";
 
 const App = () => {
   return (
     <div className="App">
-      <CameraPanorama />
+      <Camera360View />
     </div>
   );
 };

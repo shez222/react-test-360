@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
-const CameraPanorama = () => {
+const Camera360View = () => {
   const mountRef = useRef(null);
 
   useEffect(() => {
@@ -20,13 +20,16 @@ const CameraPanorama = () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
     mount.appendChild(renderer.domElement);
 
-    // Video element for live feed
-    const video = document.createElement("video");
-    video.autoplay = true;
-    video.muted = true;
-    video.playsInline = true; // Needed for mobile browsers
-    video.width = 1024;
-    video.height = 1024;
+    // Create video elements for each direction (front, left, right, top, bottom)
+    const videoFront = document.createElement("video");
+    const videoLeft = document.createElement("video");
+    const videoRight = document.createElement("video");
+    const videoTop = document.createElement("video");
+    const videoBottom = document.createElement("video");
+
+    videoFront.autoplay = videoLeft.autoplay = videoRight.autoplay = videoTop.autoplay = videoBottom.autoplay = true;
+    videoFront.muted = videoLeft.muted = videoRight.muted = videoTop.muted = videoBottom.muted = true;
+    videoFront.playsInline = videoLeft.playsInline = videoRight.playsInline = videoTop.playsInline = videoBottom.playsInline = true;
 
     // Use getUserMedia to get camera feed
     const startCamera = async () => {
@@ -34,7 +37,11 @@ const CameraPanorama = () => {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment" }, // Use rear camera
         });
-        video.srcObject = stream;
+        videoFront.srcObject = stream;
+        videoLeft.srcObject = stream;
+        videoRight.srcObject = stream;
+        videoTop.srcObject = stream;
+        videoBottom.srcObject = stream;
       } catch (err) {
         console.error("Error accessing camera: ", err);
       }
@@ -43,16 +50,29 @@ const CameraPanorama = () => {
     // Start the camera when the component mounts
     startCamera();
 
-    // Video texture from camera stream
-    const videoTexture = new THREE.VideoTexture(video);
+    // Create Video Textures
+    const videoTextureFront = new THREE.VideoTexture(videoFront);
+    const videoTextureLeft = new THREE.VideoTexture(videoLeft);
+    const videoTextureRight = new THREE.VideoTexture(videoRight);
+    const videoTextureTop = new THREE.VideoTexture(videoTop);
+    const videoTextureBottom = new THREE.VideoTexture(videoBottom);
 
-    // Sphere with video texture
+    // Create geometry (sphere) and map textures for each part
     const sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
     sphereGeometry.scale(-1, 1, 1); // Invert the sphere to apply the texture inside
-    const sphereMaterial = new THREE.MeshBasicMaterial({
-      map: videoTexture,
-    });
-    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+
+    // Create materials with different textures for each side of the sphere
+    const materials = [
+      new THREE.MeshBasicMaterial({ map: videoTextureFront }),  // Front
+      new THREE.MeshBasicMaterial({ map: videoTextureBack }),   // Back
+      new THREE.MeshBasicMaterial({ map: videoTextureLeft }),   // Left
+      new THREE.MeshBasicMaterial({ map: videoTextureRight }),  // Right
+      new THREE.MeshBasicMaterial({ map: videoTextureTop }),    // Top
+      new THREE.MeshBasicMaterial({ map: videoTextureBottom })  // Bottom
+    ];
+
+    // Create a sphere with 6 materials (for the 6 sides)
+    const sphere = new THREE.Mesh(sphereGeometry, materials);
     scene.add(sphere);
 
     // Orbit Controls
@@ -90,134 +110,8 @@ const CameraPanorama = () => {
   );
 };
 
-export default CameraPanorama;
+export default Camera360View;
 
-
-
-
-
-
-
-
-
-
-
-
-// import React, { useRef, useEffect } from "react";
-// import * as THREE from "three";
-// import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-
-// const MultiImageSphere = () => {
-//   const mountRef = useRef(null);
-
-//   useEffect(() => {
-//     const mount = mountRef.current;
-
-//     // Scene, Camera, Renderer
-//     const scene = new THREE.Scene();
-//     const camera = new THREE.PerspectiveCamera(
-//       75,
-//       window.innerWidth / window.innerHeight,
-//       0.1,
-//       1000
-//     );
-//     const renderer = new THREE.WebGLRenderer({ antialias: true });
-//     renderer.setSize(window.innerWidth, window.innerHeight);
-//     mount.appendChild(renderer.domElement);
-
-//     // Create Canvas
-//     const canvas = document.createElement("canvas");
-//     const canvasSize = 1024; // Canvas size
-//     const gridSize = 6; // Lower grid size for larger images
-//     canvas.width = canvasSize;
-//     canvas.height = canvasSize;
-//     const ctx = canvas.getContext("2d");
-
-//     // Helper function to load images
-//     const loadImage = (src) => {
-//       return new Promise((resolve) => {
-//         const img = new Image();
-//         img.crossOrigin = "anonymous"; // Avoid CORS issues
-//         img.onload = () => resolve(img);
-//         img.src = src;
-//       });
-//     };
-
-//     // Draw Images on Canvas
-//     const drawImagesOnCanvas = async () => {
-//       const image = await loadImage("https://images.pexels.com/photos/290595/pexels-photo-290595.jpeg");
-
-//       const imageWidth = canvas.width / gridSize;
-//       const imageHeight = canvas.height / gridSize;
-
-//       // You can adjust the image size here directly by scaling the image width and height
-//       const scaledWidth = imageWidth * 1.5; // Increase size by 1.5 times
-//       const scaledHeight = imageHeight * 1.5; // Increase size by 1.5 times
-
-//       // Fill the canvas with larger images in a grid pattern
-//       for (let row = 0; row < gridSize; row++) {
-//         for (let col = 0; col < gridSize; col++) {
-//           ctx.drawImage(
-//             image,
-//             col * imageWidth, // X position
-//             row * imageHeight, // Y position
-//             scaledWidth, // Image width (scaled)
-//             scaledHeight // Image height (scaled)
-//           );
-//         }
-//       }
-//     };
-
-//     // Sphere with canvas texture
-//     const sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
-//     sphereGeometry.scale(-1, 1, 1); // Invert the sphere
-//     const sphereMaterial = new THREE.MeshBasicMaterial({
-//       map: new THREE.CanvasTexture(canvas),
-//     });
-//     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-//     scene.add(sphere);
-
-//     // Orbit Controls
-//     const controls = new OrbitControls(camera, renderer.domElement);
-//     controls.enableZoom = true;
-//     camera.position.set(0, 0, 0.1);
-
-//     // Draw images and update texture
-//     drawImagesOnCanvas().then(() => {
-//       sphereMaterial.map.needsUpdate = true;
-//     });
-
-//     // Handle Window Resize
-//     const onWindowResize = () => {
-//       camera.aspect = window.innerWidth / window.innerHeight;
-//       camera.updateProjectionMatrix();
-//       renderer.setSize(window.innerWidth, window.innerHeight);
-//     };
-//     window.addEventListener("resize", onWindowResize);
-
-//     // Animation Loop
-//     const animate = () => {
-//       requestAnimationFrame(animate);
-//       controls.update();
-//       renderer.render(scene, camera);
-//     };
-//     animate();
-
-//     // Cleanup
-//     return () => {
-//       mount.removeChild(renderer.domElement);
-//       window.removeEventListener("resize", onWindowResize);
-//     };
-//   }, []);
-
-//   return (
-//     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-//       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
-//     </div>
-//   );
-// };
-
-// export default MultiImageSphere;
 
 
 
