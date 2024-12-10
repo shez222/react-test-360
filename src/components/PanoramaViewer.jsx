@@ -16,18 +16,19 @@ const PanoramaViewer = () => {
   const markerRef = useRef(null);
   const hiddenCanvasRef = useRef(null);
 
-  // **Moved planeWidth and planeHeight to top-level scope**
+  // **Global Configuration**
   const planeWidth = 2; // Increased to 2 units
   const planeHeight = 3; // Increased to 3 units
 
-  // Sphere and placement settings
-  const sphereRadius = 5;
-  const offsetFromSurface = 0.01;
+  const hfov = 60; // Horizontal Field of View in degrees
+  const vfov = 45; // Vertical Field of View in degrees
 
-  // Capture configuration
+  const azIncrement = hfov * 0.75; // 45°
+  const elevationStep = vfov * 0.75; // 33.75°, rounded to 30° for simplicity
+
   const elevationLevels = [-60, -30, 0, 30, 60]; // Degrees
-  const maxCapturesPerElevation = 24; // 15-degree increments
-  const angleIncrement = 15; // Degrees
+  const maxCapturesPerElevation = Math.ceil(360 / azIncrement); // 8 captures
+  const maxCaptures = elevationLevels.length * maxCapturesPerElevation; // 5 * 8 = 40 captures
 
   // Refs for mutable variables
   const captureCountRef = useRef(0);
@@ -39,7 +40,7 @@ const PanoramaViewer = () => {
   // State variables for UI
   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
   const [captureCount, setCaptureCount] = useState(0);
-  const maxCaptures = elevationLevels.length * maxCapturesPerElevation; // e.g., 5 x 24 = 120
+  const [showFlash, setShowFlash] = useState(false); // For visual feedback
 
   useEffect(() => {
     // Initialize Three.js Scene
@@ -90,7 +91,7 @@ const PanoramaViewer = () => {
     }
 
     // Add a Semi-Transparent Sphere as a Reference (Visible from Inside)
-    const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
+    const sphereGeometry = new THREE.SphereGeometry(5, 64, 64); // sphereRadius = 5
     const sphereMaterial = new THREE.MeshBasicMaterial({
       color: 0x44aa88,
       transparent: true,
@@ -132,7 +133,7 @@ const PanoramaViewer = () => {
 
     // Helper Function to Place Objects on the Inner Surface of the Sphere
     const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
-      const r = sphereRadius - offsetFromSurface;
+      const r = 5 - 0.01; // sphereRadius - offsetFromSurface
       const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
       const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
 
@@ -254,7 +255,7 @@ const PanoramaViewer = () => {
         capturedTexture.needsUpdate = true;
 
         // Create a plane for the captured image with FrontSide
-        const capturedPlane = createCapturedPlane(capturedTexture, planeWidth, planeHeight); // planeWidth and planeHeight are now defined
+        const capturedPlane = createCapturedPlane(capturedTexture, planeWidth, planeHeight); // planeWidth and planeHeight are defined
         capturedPlane.userData.isCaptured = true; // Tag for potential removal/reset
         scene.add(capturedPlane);
 
@@ -271,7 +272,7 @@ const PanoramaViewer = () => {
         setCaptureCount(captureCountRef.current); // Update state for UI
 
         // Check if all captures for current elevation are done
-        if (currentAzimuthRef.current >= 360 - angleIncrement) {
+        if (currentAzimuthRef.current >= 360 - azIncrement) {
           currentAzimuthRef.current = 0; // Reset azimuth for next elevation
           currentElevationIndexRef.current += 1; // Move to next elevation
 
@@ -280,7 +281,7 @@ const PanoramaViewer = () => {
             return resolve();
           }
         } else {
-          currentAzimuthRef.current += angleIncrement; // Move to next azimuth
+          currentAzimuthRef.current += azIncrement; // Move to next azimuth
         }
 
         // Update Instructions
@@ -297,15 +298,19 @@ const PanoramaViewer = () => {
         placeObjectOnSphere(videoPlaneRef.current, currentAzimuthRef.current, newElevation);
         placeObjectOnSphere(marker, currentAzimuthRef.current, newElevation);
 
+        // **Optional: Flash Effect for Visual Feedback**
+        setShowFlash(true);
+        setTimeout(() => setShowFlash(false), 200); // Flash duration: 200ms
+
         resolve();
       };
       img.src = dataURL;
     });
   };
 
-  // **Ensure placeObjectOnSphere is defined in component scope**
+  // Helper Function to Place Objects on the Sphere
   const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
-    const r = sphereRadius - offsetFromSurface;
+    const r = 5 - 0.01; // sphereRadius - offsetFromSurface
     const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
     const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
 
@@ -380,9 +385,7 @@ const PanoramaViewer = () => {
           Captures: {captureCount} / {maxCaptures}
         </div>
       </div>
-      {/* Flash Effect */}
-      {/* Optional: Uncomment the following lines to add a flash effect on capture */}
-      {/*
+      {/* Flash Effect for Visual Feedback */}
       {showFlash && (
         <div
           style={{
@@ -397,7 +400,6 @@ const PanoramaViewer = () => {
           }}
         />
       )}
-      */}
     </div>
   );
 };
