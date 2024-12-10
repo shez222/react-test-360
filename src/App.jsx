@@ -1,26 +1,16 @@
 import React from "react";
-import CaptureDots from "./components/CaptureDots";
-import CameraCapture from "./components/CameraCapture";
-import PanoramaRenderer from "./components/PanoramaRenderer";
+import PanoramaViewerWithDots from "./components/PanoramaViewer";
+import "./index.css";
 
 const App = () => {
   return (
-    <div>
-      <h1>360° Guided Panorama Capture</h1>
-      <CaptureDots />
-      <CameraCapture />
-      <PanoramaRenderer />
+    <div className="App">
+      <PanoramaViewerWithDots />
     </div>
   );
 };
 
 export default App;
-
-
-
-
-
-
 
 
 

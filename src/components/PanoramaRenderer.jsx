@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-const PanoramaRenderer = ({ imagePath = "/path/to/stitched-image.jpg" }) => {
+const PanoramaRenderer = ({ panoramaImage }) => {
   const mountRef = useRef(null);
 
   useEffect(() => {
@@ -16,12 +16,12 @@ const PanoramaRenderer = ({ imagePath = "/path/to/stitched-image.jpg" }) => {
     geometry.scale(-1, 1, 1);
 
     const textureLoader = new THREE.TextureLoader();
-    const texture = textureLoader.load(imagePath);
+    const texture = textureLoader.load(panoramaImage);
     const material = new THREE.MeshBasicMaterial({ map: texture });
     const sphere = new THREE.Mesh(geometry, material);
     scene.add(sphere);
 
-    camera.position.z = 0.1;
+    camera.position.set(0, 0, 0.1);
 
     const animate = () => {
       requestAnimationFrame(animate);
@@ -33,7 +33,7 @@ const PanoramaRenderer = ({ imagePath = "/path/to/stitched-image.jpg" }) => {
     return () => {
       mount.removeChild(renderer.domElement);
     };
-  }, [imagePath]);
+  }, [panoramaImage]);
 
   return <div ref={mountRef} style={{ width: "100%", height: "400px" }} />;
 };

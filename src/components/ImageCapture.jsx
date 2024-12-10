@@ -1,6 +1,6 @@
 import React, { useRef } from "react";
 
-const CameraCapture = () => {
+const ImageCapture = ({ onCapture }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -13,8 +13,8 @@ const CameraCapture = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    const imageData = canvas.toDataURL("image/jpeg");
-    console.log("Captured Image Data:", imageData);
+    const image = canvas.toDataURL("image/jpeg");
+    onCapture(image);
   };
 
   return (
@@ -27,4 +27,4 @@ const CameraCapture = () => {
   );
 };
 
-export default CameraCapture;
+export default ImageCapture;
