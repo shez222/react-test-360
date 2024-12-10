@@ -6,15 +6,11 @@ const SceneView = () => {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const cameraRef = useRef(null);
-  const sceneRef = useRef(null);
-  const videoRef = useRef(null);
-  const videoTextureRef = useRef(null);
 
   useEffect(() => {
     // Setup scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202020);
-    sceneRef.current = scene;
 
     // Setup camera
     const camera = new THREE.PerspectiveCamera(
@@ -23,7 +19,6 @@ const SceneView = () => {
       0.1,
       1000
     );
-    // Place camera at center of the sphere
     camera.position.set(0, 0, 0);
     cameraRef.current = camera;
 
@@ -33,7 +28,7 @@ const SceneView = () => {
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Add OrbitControls to freely look around
+    // Add OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -62,39 +57,57 @@ const SceneView = () => {
     const axesHelper = new THREE.AxesHelper(10);
     scene.add(axesHelper);
 
-    // Create a video element to get the camera feed
+    // Create a large transparent sphere
+    const sphereGeometry = new THREE.SphereGeometry(5, 64, 64);
+    const sphereMaterial = new THREE.MeshBasicMaterial({
+      color: 0x44aa88,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.DoubleSide
+    });
+    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    scene.add(sphere);
+
+    // Create a video element for the camera feed
     const video = document.createElement('video');
-    videoRef.current = video;
     video.setAttribute('playsinline', '');
     video.autoplay = true;
     video.muted = true;
 
-    // Request user media from the device camera
+    // Request user media from the device's back camera
     navigator.mediaDevices
-      .getUserMedia({ video: true, audio: false })
+      .getUserMedia({ 
+        video: { facingMode: { exact: 'environment' } }, 
+        audio: false 
+      })
       .then((stream) => {
         video.srcObject = stream;
         video.play();
       })
       .catch((err) => {
-        console.error('Error accessing camera: ', err);
+        console.error('Error accessing back camera: ', err);
       });
 
     // Create a texture from the video
     const videoTexture = new THREE.VideoTexture(video);
     videoTexture.minFilter = THREE.LinearFilter;
     videoTexture.magFilter = THREE.LinearFilter;
-    videoTexture.format = THREE.RGBFormat;
-    videoTextureRef.current = videoTexture;
 
-    // Create a sphere with the video texture mapped on the inside
-    const sphereGeometry = new THREE.SphereGeometry(5, 64, 64);
-    const sphereMaterial = new THREE.MeshBasicMaterial({
-      map: videoTexture,
-      side: THREE.DoubleSide
-    });
-    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-    scene.add(sphere);
+    // Create a small plane geometry to display the camera feed
+    const planeWidth = 1;
+    const planeHeight = 0.75; 
+    const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+    const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+    const videoPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+
+    // Place the plane on the inner surface of the sphere
+    const sphereRadius = 5;
+    const offsetFromSurface = 0.01; 
+    videoPlane.position.set(0, 0, -sphereRadius + offsetFromSurface);
+
+    // Rotate plane 180 degrees on Y to face inward toward the camera
+    videoPlane.rotation.y = Math.PI; 
+    scene.add(videoPlane);
 
     // Handle window resize
     const onWindowResize = () => {
@@ -126,16 +139,6 @@ const SceneView = () => {
     };
   }, []);
 
-  const captureImage = () => {
-    const renderer = rendererRef.current;
-    if (!renderer) return;
-    const dataURL = renderer.domElement.toDataURL('image/png');
-    // For demonstration, we open the captured image in a new tab.
-    // In a real scenario, you could store it, upload it, etc.
-    const win = window.open('about:blank', 'Captured Image');
-    win.document.write(`<img src="${dataURL}" alt="Captured" style="width:100%"/>`);
-  };
-
   return (
     <div
       style={{ position: 'relative', width: '100%', height: '100vh', overflow: 'hidden' }}
@@ -151,26 +154,12 @@ const SceneView = () => {
           left: 0
         }}
       />
-      <button
-        onClick={captureImage}
-        style={{
-          position: 'absolute',
-          zIndex: 1,
-          top: '10px',
-          left: '10px',
-          padding: '10px',
-          background: 'white',
-          border: '1px solid #ccc',
-          cursor: 'pointer'
-        }}
-      >
-        Capture Image
-      </button>
     </div>
   );
 };
 
 export default SceneView;
+
 
 
 
