@@ -1,42 +1,46 @@
-
-import React, { useRef, useEffect, useState } from "react";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import React, { useRef, useState, useEffect } from 'react';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 const PhotoSphereCamera = () => {
   const mountRef = useRef(null);
-  const [imageCaptured, setImageCaptured] = useState(null);
+  const sceneRef = useRef(new THREE.Scene()); // Use ref to persist the scene across renders
+  const cameraRef = useRef(new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)); // Camera ref
+  const rendererRef = useRef(new THREE.WebGLRenderer({ antialias: true })); // Renderer ref
+  const [capturedImages, setCapturedImages] = useState([]);
+  const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
     const mount = mountRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const renderer = rendererRef.current;
 
-    // Set up the scene, camera, and renderer
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Set up renderer
     renderer.setSize(window.innerWidth, window.innerHeight);
     mount.appendChild(renderer.domElement);
 
-    // Create the sphere and camera controls
+    // Create sphere
     const sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
-    sphereGeometry.scale(-1, 1, 1); // Invert the sphere so the image is on the inside
-    const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+    sphereGeometry.scale(-1, 1, 1); // Invert the sphere
+    const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, side: THREE.DoubleSide });
     const sphere = new THREE.Mesh(sphereGeometry, material);
     scene.add(sphere);
 
+    // OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableZoom = true;
     camera.position.set(0, 0, 0.1);
 
-    // Handle window resizing
+    // Handle window resize
     const onWindowResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     };
-    window.addEventListener("resize", onWindowResize);
+    window.addEventListener('resize', onWindowResize);
 
-    // Animate the scene
+    // Animation loop
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
@@ -44,69 +48,107 @@ const PhotoSphereCamera = () => {
     };
     animate();
 
-    // Function to capture an image from the webcam
-    const captureImageFromCamera = () => {
-      navigator.mediaDevices
-        .getUserMedia({ video: true })
-        .then((stream) => {
-          const video = document.createElement("video");
-          video.srcObject = stream;
-          video.play();
-
-          // Capture frame from video
-          video.onloadeddata = () => {
-            const canvas = document.createElement("canvas");
-            const context = canvas.getContext("2d");
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0);
-            const imageData = canvas.toDataURL("image/png");
-
-            // Set the captured image as a texture
-            const texture = new THREE.TextureLoader().load(imageData);
-            sphere.material.map = texture;
-            sphere.material.needsUpdate = true;
-            setImageCaptured(imageData);
-
-            // Stop the video stream
-            stream.getTracks().forEach(track => track.stop());
-          };
-        })
-        .catch((err) => console.error("Error accessing webcam: ", err));
-    };
-
-    // Add capture button functionality
-    const captureButton = document.createElement("button");
-    captureButton.innerText = "Capture Photo";
-    captureButton.style.position = "absolute";
-    captureButton.style.top = "20px";
-    captureButton.style.left = "20px";
-    captureButton.addEventListener("click", captureImageFromCamera);
-    mount.appendChild(captureButton);
-
     // Cleanup
     return () => {
       mount.removeChild(renderer.domElement);
-      window.removeEventListener("resize", onWindowResize);
+      window.removeEventListener('resize', onWindowResize);
     };
-  }, []);
+  }, []); // Empty dependency array, runs once after initial mount
+
+  const captureImageFromCamera = () => {
+    if (capturing) return;  // Prevent multiple captures at the same time
+    setCapturing(true);
+
+    navigator.mediaDevices
+      .getUserMedia({ video: true })
+      .then((stream) => {
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.play();
+
+        // Capture frame from video
+        video.onloadeddata = () => {
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          context.drawImage(video, 0, 0);
+          const imageData = canvas.toDataURL('image/png');
+
+          // Add captured image to the array
+          setCapturedImages((prevImages) => [...prevImages, imageData]);
+
+          // Stop the video stream
+          stream.getTracks().forEach((track) => track.stop());
+
+          setCapturing(false);
+        };
+      })
+      .catch((err) => {
+        console.error('Error accessing webcam: ', err);
+        setCapturing(false);
+      });
+  };
+
+  // Update sphere with captured images
+  useEffect(() => {
+    if (capturedImages.length > 0) {
+      const latestImage = capturedImages[capturedImages.length - 1];
+
+      const texture = new THREE.TextureLoader().load(latestImage);
+      const angle = capturedImages.length * (Math.PI / 8); // Distribute images on the sphere
+
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.DoubleSide,
+      });
+
+      // Map the image to the right position on the sphere using spherical coordinates
+      const sphereRadius = 500;
+      const x = sphereRadius * Math.sin(angle);
+      const z = sphereRadius * Math.cos(angle);
+      const y = 0;
+
+      const planeGeometry = new THREE.PlaneGeometry(sphereRadius / 3, sphereRadius / 3);
+      const plane = new THREE.Mesh(planeGeometry, material);
+
+      // Access the scene correctly from the ref
+      const scene = sceneRef.current;
+      plane.position.set(x, y, z);
+      scene.add(plane);
+    }
+  }, [capturedImages]); // Only run this effect when capturedImages changes
 
   return (
     <div
       style={{
-        position: "relative",
-        width: "100%",
-        height: "100vh",
-        background: "#000",
+        position: 'relative',
+        width: '100%',
+        height: '100vh',
+        background: '#000',
       }}
     >
-      <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
+      <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+      <button
+        style={{
+          position: 'absolute',
+          top: '20px',
+          left: '20px',
+          padding: '10px',
+          background: '#fff',
+          border: '1px solid #ddd',
+          borderRadius: '5px',
+        }}
+        onClick={captureImageFromCamera}
+        disabled={capturing}
+      >
+        {capturing ? 'Capturing...' : 'Capture Image'}
+      </button>
     </div>
   );
 };
 
 export default PhotoSphereCamera;
-
 
 
 
