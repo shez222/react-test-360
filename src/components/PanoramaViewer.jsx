@@ -58,7 +58,7 @@ const SceneView = () => {
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(sphereRadius, 64, 64),
       new THREE.MeshBasicMaterial({
-        color: 0x000000,
+        color: 0x44aa88,
         transparent: true,
         opacity: 0.3,
         side: THREE.DoubleSide
