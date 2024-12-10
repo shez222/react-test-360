@@ -28,7 +28,7 @@ const SceneView = () => {
   useEffect(() => {
     // Create the scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x202020);
+    scene.background = new THREE.Color(0xfffff0);
     sceneRef.current = scene;
 
     // Setup camera in the center of the sphere
