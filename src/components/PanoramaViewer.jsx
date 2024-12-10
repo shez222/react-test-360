@@ -16,12 +16,17 @@ const PanoramaViewer = () => {
   const markerRef = useRef(null);
   const hiddenCanvasRef = useRef(null);
 
-  // **Global Configuration**
-  const planeWidth = 2; // Increased to 2 units
-  const planeHeight = 3; // Increased to 3 units
+  // **Top-Level Plane Dimensions**
+  const planeWidth = 4; // Increased to 4 units for wider horizontal coverage
+  const planeHeight = 5; // Increased to 5 units for taller vertical coverage
 
-  const hfov = 60; // Horizontal Field of View in degrees
-  const vfov = 45; // Vertical Field of View in degrees
+  // Sphere and placement settings
+  const sphereRadius = 5;
+  const offsetFromSurface = 0.01;
+
+  // Capture configuration
+  const hfov = 60; // Horizontal Field of View in degrees (adjust based on actual camera)
+  const vfov = 45; // Vertical Field of View in degrees (adjust based on actual camera)
 
   const azIncrement = hfov * 0.75; // 45°
   const elevationStep = vfov * 0.75; // 33.75°, rounded to 30° for simplicity
@@ -91,7 +96,7 @@ const PanoramaViewer = () => {
     }
 
     // Add a Semi-Transparent Sphere as a Reference (Visible from Inside)
-    const sphereGeometry = new THREE.SphereGeometry(5, 64, 64); // sphereRadius = 5
+    const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
     const sphereMaterial = new THREE.MeshBasicMaterial({
       color: 0x44aa88,
       transparent: true,
@@ -133,7 +138,7 @@ const PanoramaViewer = () => {
 
     // Helper Function to Place Objects on the Inner Surface of the Sphere
     const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
-      const r = 5 - 0.01; // sphereRadius - offsetFromSurface
+      const r = sphereRadius - offsetFromSurface;
       const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
       const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
 
@@ -298,7 +303,7 @@ const PanoramaViewer = () => {
         placeObjectOnSphere(videoPlaneRef.current, currentAzimuthRef.current, newElevation);
         placeObjectOnSphere(marker, currentAzimuthRef.current, newElevation);
 
-        // **Optional: Flash Effect for Visual Feedback**
+        // **Flash Effect for Visual Feedback**
         setShowFlash(true);
         setTimeout(() => setShowFlash(false), 200); // Flash duration: 200ms
 
@@ -310,7 +315,7 @@ const PanoramaViewer = () => {
 
   // Helper Function to Place Objects on the Sphere
   const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
-    const r = 5 - 0.01; // sphereRadius - offsetFromSurface
+    const r = sphereRadius - offsetFromSurface;
     const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
     const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
 
