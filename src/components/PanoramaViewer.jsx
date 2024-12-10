@@ -29,6 +29,13 @@ const PanoramaViewer = () => {
   const capturingRef = useRef(false);
   const firstCaptureDoneRef = useRef(false);
 
+  // Define angleInfoRef using useRef
+  const angleInfoRef = useRef({
+    angleIncrement: (Math.PI * 2) / maxCaptures, // 0.1745 radians (~10 degrees)
+    angleRef: angleRef,
+    placeObjectOnSphere: () => {}
+  });
+
   useEffect(() => {
     // Create the scene
     const scene = new THREE.Scene();
@@ -125,7 +132,7 @@ const PanoramaViewer = () => {
     // Dimensions for the video and captured planes
     const planeWidth = 1; // Adjusted to match arc length for 10° increments
     const planeHeight = 3;
-    const angleIncrement = (Math.PI * 2) / maxCaptures; // 0.1745 radians (~10 degrees)
+    const angleIncrement = angleInfoRef.current.angleIncrement; // 0.1745 radians (~10 degrees)
 
     // Create the video plane and add to scene
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
@@ -155,8 +162,8 @@ const PanoramaViewer = () => {
     // Store references for later use
     angleInfoRef.current = {
       angleIncrement,
-      angleRef,
-      placeObjectOnSphere
+      angleRef: angleRef,
+      placeObjectOnSphere: placeObjectOnSphere
     };
 
     // Create a hidden canvas for capturing video frames
