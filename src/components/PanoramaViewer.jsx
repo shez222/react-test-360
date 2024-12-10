@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { DeviceOrientationControls } from 'three-stdlib';
 
 const SceneView = () => {
   const mountRef = useRef(null);
@@ -11,20 +11,24 @@ const SceneView = () => {
   const videoTextureRef = useRef(null);
   const markerRef = useRef(null);
 
+  const sphereRadius = 5;
+  const offsetFromSurface = 0.01;
+
+  const [instructions, setInstructions] = useState("Move your device to align the dot with the center reticle.");
+
+  // Keep track of captures
   const angleInfoRef = useRef({
     angleIncrement: 0,
     angleRef: { currentAngle: 0 },
     placeObjectOnSphere: () => {}
   });
 
-  const [instructions, setInstructions] = useState("Align camera with the dot and press Capture");
-
   useEffect(() => {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202020);
     sceneRef.current = scene;
 
-    // Setup camera
+    // Setup camera at center
     const camera = new THREE.PerspectiveCamera(
       75,
       mountRef.current.clientWidth / mountRef.current.clientHeight,
@@ -39,15 +43,15 @@ const SceneView = () => {
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    // Device orientation controls (user physically moves device)
+    const controls = new DeviceOrientationControls(camera);
+    controls.connect();
 
-    // Grid, axes, sphere
+    // Grid and sphere
     const size = 10;
     const divisions = 10;
     scene.add(new THREE.GridHelper(size, divisions));
-    const sphereRadius = 5;
+
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(sphereRadius, 64, 64),
       new THREE.MeshBasicMaterial({
@@ -76,10 +80,10 @@ const SceneView = () => {
     const videoTexture = new THREE.VideoTexture(video);
     videoTextureRef.current = videoTexture;
 
-    // Plane dimensions
     const planeWidth = 2;
     const planeHeight = 3; 
-    const offsetFromSurface = 0.01;
+    const angleIncrement = (planeWidth * 0.95) / sphereRadius;
+    const angleRef = { currentAngle: 0 };
 
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
@@ -87,11 +91,6 @@ const SceneView = () => {
     scene.add(videoPlane);
     videoPlaneRef.current = videoPlane;
 
-    // Angle increment (slightly less for no gap)
-    const angleIncrement = (planeWidth * 0.95) / sphereRadius;
-    const angleRef = { currentAngle: 0 };
-
-    // Function to place objects (planes or marker) on sphere
     const placeObjectOnSphere = (obj, angle) => {
       const r = sphereRadius - offsetFromSurface;
       const x = r * Math.sin(angle);
@@ -100,17 +99,15 @@ const SceneView = () => {
       obj.rotation.set(0, Math.PI - angle, 0);
     };
 
-    // Place the video plane
+    // Place the video plane initially
     placeObjectOnSphere(videoPlane, angleRef.currentAngle);
 
-    // Create a marker (a small red sphere) to guide the user
+    // Marker (red dot)
     const markerGeometry = new THREE.SphereGeometry(0.05, 16, 16);
     const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
     const marker = new THREE.Mesh(markerGeometry, markerMaterial);
     scene.add(marker);
     markerRef.current = marker;
-
-    // Place the marker at the video plane's current angle
     placeObjectOnSphere(marker, angleRef.currentAngle);
 
     angleInfoRef.current = {
@@ -126,10 +123,34 @@ const SceneView = () => {
     };
     window.addEventListener('resize', onWindowResize, false);
 
+    let capturing = false;
+
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
+
       renderer.render(scene, camera);
+
+      if (!capturing) {
+        // Check if marker is near center
+        // Project marker position into screen space
+        const vector = new THREE.Vector3();
+        vector.copy(marker.position);
+        vector.project(camera);
+
+        // vector.x and vector.y now range from -1 to 1, where (0,0) is center of screen
+        const dx = vector.x;
+        const dy = vector.y;
+
+        // If close enough to center, automatically capture
+        const threshold = 0.05; // adjust for sensitivity
+        if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) {
+          capturing = true;
+          captureImage().then(() => {
+            capturing = false;
+          });
+        }
+      }
     };
     animate();
 
@@ -146,7 +167,7 @@ const SceneView = () => {
     };
   }, []);
 
-  const captureImage = () => {
+  const captureImage = async () => {
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
     const videoPlane = videoPlaneRef.current;
@@ -156,29 +177,33 @@ const SceneView = () => {
     const { angleIncrement, angleRef, placeObjectOnSphere } = angleInfoRef.current;
     const dataURL = renderer.domElement.toDataURL('image/png');
 
-    const img = new Image();
-    img.onload = () => {
-      const capturedTexture = new THREE.Texture(img);
-      capturedTexture.needsUpdate = true;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const capturedTexture = new THREE.Texture(img);
+        capturedTexture.needsUpdate = true;
 
-      const planeWidth = 2;
-      const planeHeight = 3; 
-      const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
-      const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
-      const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
-      scene.add(capturedPlane);
+        const planeWidth = 2;
+        const planeHeight = 3; 
+        const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+        const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
+        const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
+        scene.add(capturedPlane);
 
-      // Place the captured plane at the current angle
-      placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
+        // Place the captured plane at the current angle
+        placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
 
-      // Move to next angle
-      angleRef.currentAngle += angleIncrement;
-      placeObjectOnSphere(videoPlane, angleRef.currentAngle);
-      placeObjectOnSphere(marker, angleRef.currentAngle);
+        // Move to next angle
+        angleRef.currentAngle += angleIncrement;
+        placeObjectOnSphere(videoPlane, angleRef.currentAngle);
+        placeObjectOnSphere(marker, angleRef.currentAngle);
 
-      setInstructions("Rotate to align with the next red dot and then press Capture");
-    };
-    img.src = dataURL;
+        setInstructions("Move device to align with next dot.");
+
+        resolve();
+      };
+      img.src = dataURL;
+    });
   };
 
   return (
@@ -194,28 +219,537 @@ const SceneView = () => {
           left: 0
         }}
       />
-      <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 1 }}>
-        <button
-          onClick={captureImage}
-          style={{
-            padding: '10px',
-            background: 'white',
-            border: '1px solid #ccc',
-            cursor: 'pointer',
-            marginBottom: '10px'
-          }}
-        >
-          Capture Image
-        </button>
-        <div style={{ color: 'white', background: 'rgba(0,0,0,0.5)', padding: '5px' }}>
-          {instructions}
-        </div>
+      {/* Center Reticle */}
+      <div 
+        style={{
+          position: 'absolute', 
+          top: '50%', 
+          left: '50%', 
+          transform: 'translate(-50%, -50%)',
+          zIndex: 2, 
+          width: '20px', 
+          height: '20px', 
+          border: '2px solid white', 
+          borderRadius: '50%'
+        }}
+      />
+      <div 
+        style={{ 
+          position: 'absolute', 
+          top: '10px', 
+          left: '10px', 
+          zIndex: 1, 
+          color: 'white', 
+          background: 'rgba(0,0,0,0.5)', 
+          padding: '5px' 
+        }}
+      >
+        {instructions}
       </div>
     </div>
   );
 };
 
 export default SceneView;
+
+
+
+
+
+
+
+
+
+
+// import React, { useEffect, useRef, useState } from 'react';
+// import * as THREE from 'three';
+// import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+// const SceneView = () => {
+//   const mountRef = useRef(null);
+//   const rendererRef = useRef(null);
+//   const cameraRef = useRef(null);
+//   const sceneRef = useRef(null);
+//   const videoPlaneRef = useRef(null);
+//   const videoTextureRef = useRef(null);
+//   const markerRef = useRef(null);
+
+//   const angleInfoRef = useRef({
+//     angleIncrement: 0,
+//     angleRef: { currentAngle: 0 },
+//     placeObjectOnSphere: () => {}
+//   });
+
+//   const sphereRadius = 5;
+//   const offsetFromSurface = 0.01;
+
+//   const [instructions, setInstructions] = useState("Align camera with the dot and press Capture");
+
+//   // We'll track camera angles ourselves
+//   // Angle=0 means camera faces the initial angle (negative Z direction)
+//   const currentCameraAngleRef = useRef(0);
+//   const targetCameraAngleRef = useRef(0);
+
+//   useEffect(() => {
+//     const scene = new THREE.Scene();
+//     scene.background = new THREE.Color(0x202020);
+//     sceneRef.current = scene;
+
+//     // Setup camera at center
+//     const camera = new THREE.PerspectiveCamera(
+//       75,
+//       mountRef.current.clientWidth / mountRef.current.clientHeight,
+//       0.1,
+//       1000
+//     );
+//     camera.position.set(0, 0, 0);
+//     cameraRef.current = camera;
+
+//     // By default, angle=0 means looking at negative Z inside the sphere.
+//     // Let's set initial camera direction:
+//     currentCameraAngleRef.current = 0;
+//     targetCameraAngleRef.current = 0;
+//     lookAtAngle(camera, currentCameraAngleRef.current);
+
+//     const renderer = new THREE.WebGLRenderer({ antialias: true });
+//     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+//     mountRef.current.appendChild(renderer.domElement);
+//     rendererRef.current = renderer;
+
+//     const controls = new OrbitControls(camera, renderer.domElement);
+//     controls.enableDamping = true;
+//     controls.dampingFactor = 0.05;
+
+//     // Grids and sphere
+//     const size = 10;
+//     const divisions = 10;
+//     scene.add(new THREE.GridHelper(size, divisions));
+//     const sphere = new THREE.Mesh(
+//       new THREE.SphereGeometry(sphereRadius, 64, 64),
+//       new THREE.MeshBasicMaterial({
+//         color: 0x44aa88,
+//         transparent: true,
+//         opacity: 0.3,
+//         side: THREE.DoubleSide
+//       })
+//     );
+//     scene.add(sphere);
+
+//     // Video setup
+//     const video = document.createElement('video');
+//     video.setAttribute('playsinline', '');
+//     video.autoplay = true;
+//     video.muted = true;
+
+//     navigator.mediaDevices
+//       .getUserMedia({ video: { facingMode: { exact: 'environment' } }, audio: false })
+//       .then((stream) => {
+//         video.srcObject = stream;
+//         video.play();
+//       })
+//       .catch(console.error);
+
+//     const videoTexture = new THREE.VideoTexture(video);
+//     videoTextureRef.current = videoTexture;
+
+//     // Plane dimensions and increment
+//     const planeWidth = 2;
+//     const planeHeight = 3; 
+//     // Slight overlap factor
+//     const angleIncrement = (planeWidth * 0.95) / sphereRadius;
+//     const angleRef = { currentAngle: 0 };
+
+//     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+//     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+//     const videoPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+//     scene.add(videoPlane);
+//     videoPlaneRef.current = videoPlane;
+
+//     const placeObjectOnSphere = (obj, angle) => {
+//       const r = sphereRadius - offsetFromSurface;
+//       const x = r * Math.sin(angle);
+//       const z = r * Math.cos(angle);
+//       obj.position.set(x, 0, -z);
+//       obj.rotation.set(0, Math.PI - angle, 0);
+//     };
+
+//     // Place the video plane initially
+//     placeObjectOnSphere(videoPlane, angleRef.currentAngle);
+
+//     // Create a marker (red dot) to guide the user
+//     const markerGeometry = new THREE.SphereGeometry(0.05, 16, 16);
+//     const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+//     const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+//     scene.add(marker);
+//     markerRef.current = marker;
+
+//     // Place the marker at the same angle
+//     placeObjectOnSphere(marker, angleRef.currentAngle);
+
+//     angleInfoRef.current = {
+//       angleIncrement,
+//       angleRef,
+//       placeObjectOnSphere
+//     };
+
+//     const onWindowResize = () => {
+//       camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+//       camera.updateProjectionMatrix();
+//       renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+//     };
+//     window.addEventListener('resize', onWindowResize, false);
+
+//     const animate = () => {
+//       requestAnimationFrame(animate);
+//       controls.update();
+//       // Smoothly rotate camera to target angle after capture
+//       const speed = 0.02; // rotation speed factor
+//       if (Math.abs(targetCameraAngleRef.current - currentCameraAngleRef.current) > 0.001) {
+//         // Move currentCameraAngle towards targetCameraAngle
+//         currentCameraAngleRef.current += (targetCameraAngleRef.current - currentCameraAngleRef.current) * speed;
+//         lookAtAngle(camera, currentCameraAngleRef.current);
+//       }
+//       renderer.render(scene, camera);
+//     };
+//     animate();
+
+//     return () => {
+//       window.removeEventListener('resize', onWindowResize);
+//       if (mountRef.current && renderer.domElement) {
+//         mountRef.current.removeChild(renderer.domElement);
+//       }
+//       renderer.dispose();
+//       if (video.srcObject) {
+//         const tracks = video.srcObject.getTracks();
+//         tracks.forEach(track => track.stop());
+//       }
+//     };
+//   }, []);
+
+//   const captureImage = () => {
+//     const renderer = rendererRef.current;
+//     const scene = sceneRef.current;
+//     const videoPlane = videoPlaneRef.current;
+//     const marker = markerRef.current;
+//     if (!renderer || !scene || !videoPlane || !marker) return;
+
+//     const { angleIncrement, angleRef, placeObjectOnSphere } = angleInfoRef.current;
+//     const dataURL = renderer.domElement.toDataURL('image/png');
+
+//     const img = new Image();
+//     img.onload = () => {
+//       const capturedTexture = new THREE.Texture(img);
+//       capturedTexture.needsUpdate = true;
+
+//       const planeWidth = 2;
+//       const planeHeight = 3; 
+//       const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+//       const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
+//       const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
+//       scene.add(capturedPlane);
+
+//       // Place the captured plane at the current angle
+//       placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
+
+//       // Move to next angle
+//       angleRef.currentAngle += angleIncrement;
+//       placeObjectOnSphere(videoPlane, angleRef.currentAngle);
+//       placeObjectOnSphere(marker, angleRef.currentAngle);
+
+//       // Set the camera to rotate automatically to the new angle
+//       targetCameraAngleRef.current = angleRef.currentAngle;
+
+//       setInstructions("Camera rotating... Align and press Capture when ready.");
+//     };
+//     img.src = dataURL;
+//   };
+
+//   // Helper function to orient camera to a given angle
+//   function lookAtAngle(camera, angle) {
+//     // Compute the point on the sphere at this angle
+//     const r = sphereRadius - offsetFromSurface;
+//     const x = r * Math.sin(angle);
+//     const z = r * Math.cos(angle);
+//     camera.lookAt(x, 0, -z);
+//   }
+
+//   return (
+//     <div style={{ position: 'relative', width: '100%', height: '100vh', overflow: 'hidden' }}>
+//       <div
+//         ref={mountRef}
+//         style={{
+//           width: '100%',
+//           height: '100%',
+//           display: 'block',
+//           position: 'absolute',
+//           top: 0,
+//           left: 0
+//         }}
+//       />
+//       <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 1 }}>
+//         <button
+//           onClick={captureImage}
+//           style={{
+//             padding: '10px',
+//             background: 'white',
+//             border: '1px solid #ccc',
+//             cursor: 'pointer',
+//             marginBottom: '10px'
+//           }}
+//         >
+//           Capture Image
+//         </button>
+//         <div style={{ color: 'white', background: 'rgba(0,0,0,0.5)', padding: '5px' }}>
+//           {instructions}
+//         </div>
+//       </div>
+//     </div>
+//   );
+// };
+
+// export default SceneView;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import React, { useEffect, useRef, useState } from 'react';
+// import * as THREE from 'three';
+// import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+// const SceneView = () => {
+//   const mountRef = useRef(null);
+//   const rendererRef = useRef(null);
+//   const cameraRef = useRef(null);
+//   const sceneRef = useRef(null);
+//   const videoPlaneRef = useRef(null);
+//   const videoTextureRef = useRef(null);
+
+//   const angleInfoRef = useRef({
+//     angleIncrement: 0,
+//     angleRef: { currentAngle: 0 },
+//     placePlaneOnSphere: () => {}
+//   });
+
+//   useEffect(() => {
+//     const scene = new THREE.Scene();
+//     scene.background = new THREE.Color(0x202020);
+//     sceneRef.current = scene;
+
+//     // Setup camera at center
+//     const camera = new THREE.PerspectiveCamera(
+//       75,
+//       mountRef.current.clientWidth / mountRef.current.clientHeight,
+//       0.1,
+//       1000
+//     );
+//     camera.position.set(0, 0, 0);
+//     cameraRef.current = camera;
+
+//     const renderer = new THREE.WebGLRenderer({ antialias: true });
+//     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+//     mountRef.current.appendChild(renderer.domElement);
+//     rendererRef.current = renderer;
+
+//     const controls = new OrbitControls(camera, renderer.domElement);
+//     controls.enableDamping = true;
+//     controls.dampingFactor = 0.05;
+//     controls.minDistance = 0.1;
+//     controls.maxDistance = 100;
+//     controls.enablePan = true;
+//     controls.minPolarAngle = 0;
+//     controls.maxPolarAngle = Math.PI;
+
+//     // Grid helpers and axes
+//     const size = 10;
+//     const divisions = 10;
+//     const gridXY = new THREE.GridHelper(size, divisions);
+//     scene.add(gridXY);
+//     const gridYZ = new THREE.GridHelper(size, divisions);
+//     gridYZ.rotation.z = Math.PI / 2;
+//     scene.add(gridYZ);
+//     const gridZX = new THREE.GridHelper(size, divisions);
+//     gridZX.rotation.x = Math.PI / 2;
+//     scene.add(gridZX);
+//     const axesHelper = new THREE.AxesHelper(10);
+//     scene.add(axesHelper);
+
+//     // Transparent sphere
+//     const sphereRadius = 5;
+//     const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
+//     const sphereMaterial = new THREE.MeshBasicMaterial({
+//       color: 0x44aa88,
+//       transparent: true,
+//       opacity: 0.3,
+//       side: THREE.DoubleSide
+//     });
+//     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+//     scene.add(sphere);
+
+//     // Video element for camera feed
+//     const video = document.createElement('video');
+//     video.setAttribute('playsinline', '');
+//     video.autoplay = true;
+//     video.muted = true;
+
+//     navigator.mediaDevices
+//       .getUserMedia({ 
+//         video: { facingMode: { exact: 'environment' } }, 
+//         audio: false 
+//       })
+//       .then((stream) => {
+//         video.srcObject = stream;
+//         video.play();
+//       })
+//       .catch((err) => {
+//         console.error('Error accessing back camera: ', err);
+//       });
+
+//     const videoTexture = new THREE.VideoTexture(video);
+//     videoTexture.minFilter = THREE.LinearFilter;
+//     videoTexture.magFilter = THREE.LinearFilter;
+//     videoTextureRef.current = videoTexture;
+
+//     // Plane dimensions
+//     const planeWidth = 2;
+//     const planeHeight = 3; 
+//     const offsetFromSurface = 0.01;
+
+//     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+//     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+//     const videoPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+//     scene.add(videoPlane);
+//     videoPlaneRef.current = videoPlane;
+
+//     // Slightly reduce angle increment to cause images to "touch" or overlap
+//     const angleIncrement = (planeWidth * 0.95) / sphereRadius;
+//     const angleRef = { currentAngle: 0 };
+
+//     const placePlaneOnSphere = (plane, angle) => {
+//       const r = sphereRadius - offsetFromSurface;
+//       const x = r * Math.sin(angle);
+//       const z = r * Math.cos(angle);
+//       plane.position.set(x, 0, -z);
+//       plane.rotation.set(0, Math.PI - angle, 0);
+//     };
+
+//     // Place the video plane initially
+//     placePlaneOnSphere(videoPlane, angleRef.currentAngle);
+
+//     angleInfoRef.current = {
+//       angleIncrement,
+//       angleRef,
+//       placePlaneOnSphere
+//     };
+
+//     const onWindowResize = () => {
+//       camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+//       camera.updateProjectionMatrix();
+//       renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+//     };
+//     window.addEventListener('resize', onWindowResize, false);
+
+//     const animate = () => {
+//       requestAnimationFrame(animate);
+//       controls.update();
+//       renderer.render(scene, camera);
+//     };
+//     animate();
+
+//     return () => {
+//       window.removeEventListener('resize', onWindowResize);
+//       if (mountRef.current && renderer.domElement) {
+//         mountRef.current.removeChild(renderer.domElement);
+//       }
+//       renderer.dispose();
+//       if (video.srcObject) {
+//         const tracks = video.srcObject.getTracks();
+//         tracks.forEach(track => track.stop());
+//       }
+//     };
+//   }, []);
+
+//   const captureImage = () => {
+//     const renderer = rendererRef.current;
+//     const scene = sceneRef.current;
+//     const videoPlane = videoPlaneRef.current;
+//     if (!renderer || !scene || !videoPlane) return;
+
+//     const { angleIncrement, angleRef, placePlaneOnSphere } = angleInfoRef.current;
+//     const dataURL = renderer.domElement.toDataURL('image/png');
+
+//     const img = new Image();
+//     img.onload = () => {
+//       const capturedTexture = new THREE.Texture(img);
+//       capturedTexture.needsUpdate = true;
+
+//       const planeWidth = 2;
+//       const planeHeight = 3; 
+//       const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+//       const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
+//       const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
+
+//       const currentAngle = angleRef.currentAngle;
+//       scene.add(capturedPlane);
+//       placePlaneOnSphere(capturedPlane, currentAngle);
+
+//       // Move video plane to next position with slightly smaller increment
+//       angleRef.currentAngle += angleIncrement;
+//       placePlaneOnSphere(videoPlane, angleRef.currentAngle);
+//     };
+//     img.src = dataURL;
+//   };
+
+//   return (
+//     <div
+//       style={{ 
+//         position: 'relative', 
+//         width: '100%', 
+//         height: '100vh', 
+//         overflow: 'hidden' 
+//       }}
+//     >
+//       <div
+//         ref={mountRef}
+//         style={{
+//           width: '100%',
+//           height: '100%',
+//           display: 'block',
+//           position: 'absolute',
+//           top: 0,
+//           left: 0
+//         }}
+//       />
+//       <button
+//         onClick={captureImage}
+//         style={{
+//           position: 'absolute',
+//           zIndex: 1,
+//           top: '10px',
+//           left: '10px',
+//           padding: '10px',
+//           background: 'white',
+//           border: '1px solid #ccc',
+//           cursor: 'pointer'
+//         }}
+//       >
+//         Capture Image
+//       </button>
+//     </div>
+//   );
+// };
+
+// export default SceneView;
 
 
 
