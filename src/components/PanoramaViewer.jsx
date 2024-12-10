@@ -1,43 +1,108 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-const PhotoSphereCamera = () => {
+const SceneView = () => {
   const mountRef = useRef(null);
-  const sceneRef = useRef(new THREE.Scene());
-  const cameraRef = useRef(new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000));
-  const rendererRef = useRef(new THREE.WebGLRenderer({ antialias: true }));
-  const [capturedImages, setCapturedImages] = useState([]);
-  const [capturing, setCapturing] = useState(false);
+  const rendererRef = useRef(null);
+  const cameraRef = useRef(null);
+  const sceneRef = useRef(null);
+  const videoRef = useRef(null);
+  const videoTextureRef = useRef(null);
 
   useEffect(() => {
-    const mount = mountRef.current;
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    const renderer = rendererRef.current;
+    // Setup scene
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x202020);
+    sceneRef.current = scene;
 
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    mount.appendChild(renderer.domElement);
+    // Setup camera
+    const camera = new THREE.PerspectiveCamera(
+      75,
+      mountRef.current.clientWidth / mountRef.current.clientHeight,
+      0.1,
+      1000
+    );
+    // Place camera at center of the sphere
+    camera.position.set(0, 0, 0);
+    cameraRef.current = camera;
 
-    // Create sphere
-    const sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
-    sphereGeometry.scale(-1, 1, 1); // Invert the sphere
-    const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, side: THREE.DoubleSide });
-    const sphere = new THREE.Mesh(sphereGeometry, material);
-    scene.add(sphere);
+    // Setup renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+    mountRef.current.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
 
-    // OrbitControls
+    // Add OrbitControls to freely look around
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableZoom = true;
-    camera.position.set(0, 0, 0.1);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance = 0.1;
+    controls.maxDistance = 100;
+    controls.enablePan = true;
+    controls.minPolarAngle = 0;
+    controls.maxPolarAngle = Math.PI;
+
+    // Add grid helpers on all axes
+    const size = 10;
+    const divisions = 10;
+
+    const gridXY = new THREE.GridHelper(size, divisions);
+    scene.add(gridXY);
+
+    const gridYZ = new THREE.GridHelper(size, divisions);
+    gridYZ.rotation.z = Math.PI / 2;
+    scene.add(gridYZ);
+
+    const gridZX = new THREE.GridHelper(size, divisions);
+    gridZX.rotation.x = Math.PI / 2;
+    scene.add(gridZX);
+
+    // Axes helper
+    const axesHelper = new THREE.AxesHelper(10);
+    scene.add(axesHelper);
+
+    // Create a video element to get the camera feed
+    const video = document.createElement('video');
+    videoRef.current = video;
+    video.setAttribute('playsinline', '');
+    video.autoplay = true;
+    video.muted = true;
+
+    // Request user media from the device camera
+    navigator.mediaDevices
+      .getUserMedia({ video: true, audio: false })
+      .then((stream) => {
+        video.srcObject = stream;
+        video.play();
+      })
+      .catch((err) => {
+        console.error('Error accessing camera: ', err);
+      });
+
+    // Create a texture from the video
+    const videoTexture = new THREE.VideoTexture(video);
+    videoTexture.minFilter = THREE.LinearFilter;
+    videoTexture.magFilter = THREE.LinearFilter;
+    videoTexture.format = THREE.RGBFormat;
+    videoTextureRef.current = videoTexture;
+
+    // Create a sphere with the video texture mapped on the inside
+    const sphereGeometry = new THREE.SphereGeometry(5, 64, 64);
+    const sphereMaterial = new THREE.MeshBasicMaterial({
+      map: videoTexture,
+      side: THREE.DoubleSide
+    });
+    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+    scene.add(sphere);
 
     // Handle window resize
     const onWindowResize = () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
     };
-    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('resize', onWindowResize, false);
 
     // Animation loop
     const animate = () => {
@@ -47,222 +112,65 @@ const PhotoSphereCamera = () => {
     };
     animate();
 
-    // Cleanup
+    // Cleanup on unmount
     return () => {
-      mount.removeChild(renderer.domElement);
       window.removeEventListener('resize', onWindowResize);
+      if (mountRef.current && renderer.domElement) {
+        mountRef.current.removeChild(renderer.domElement);
+      }
+      renderer.dispose();
+      if (video.srcObject) {
+        const tracks = video.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+      }
     };
   }, []);
 
-  const captureImageFromCamera = () => {
-    if (capturing) return;  // Prevent multiple captures at the same time
-    setCapturing(true);
-
-    // Use back camera (environment mode)
-    navigator.mediaDevices
-      .getUserMedia({
-        video: {
-          facingMode: "environment" // Use the back camera
-        }
-      })
-      .then((stream) => {
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.play();
-
-        // Capture frame from video
-        video.onloadeddata = () => {
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          context.drawImage(video, 0, 0);
-          const imageData = canvas.toDataURL('image/png');
-
-          // Add captured image to the array
-          setCapturedImages((prevImages) => [...prevImages, imageData]);
-
-          // Stop the video stream
-          stream.getTracks().forEach((track) => track.stop());
-
-          setCapturing(false);
-        };
-      })
-      .catch((err) => {
-        console.error('Error accessing webcam: ', err);
-        setCapturing(false);
-      });
+  const captureImage = () => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    const dataURL = renderer.domElement.toDataURL('image/png');
+    // For demonstration, we open the captured image in a new tab.
+    // In a real scenario, you could store it, upload it, etc.
+    const win = window.open('about:blank', 'Captured Image');
+    win.document.write(`<img src="${dataURL}" alt="Captured" style="width:100%"/>`);
   };
-
-  // Update sphere with captured images
-  useEffect(() => {
-    if (capturedImages.length > 0) {
-      const latestImage = capturedImages[capturedImages.length - 1];
-
-      const texture = new THREE.TextureLoader().load(latestImage);
-      const angle = capturedImages.length * (Math.PI / 8); // Distribute images on the sphere
-
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        side: THREE.DoubleSide,
-      });
-
-      // Map the image to the right position on the sphere using spherical coordinates
-      const sphereRadius = 500;
-      const x = sphereRadius * Math.sin(angle);
-      const z = sphereRadius * Math.cos(angle);
-      const y = 0;
-
-      const planeGeometry = new THREE.PlaneGeometry(sphereRadius / 3, sphereRadius / 3);
-      const plane = new THREE.Mesh(planeGeometry, material);
-
-      // Access the scene correctly from the ref
-      const scene = sceneRef.current;
-      plane.position.set(x, y, z);
-      scene.add(plane);
-    }
-  }, [capturedImages]);
 
   return (
     <div
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: '100vh',
-        background: '#000',
-      }}
+      style={{ position: 'relative', width: '100%', height: '100vh', overflow: 'hidden' }}
     >
-      <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+      <div
+        ref={mountRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          display: 'block',
+          position: 'absolute',
+          top: 0,
+          left: 0
+        }}
+      />
       <button
+        onClick={captureImage}
         style={{
           position: 'absolute',
-          top: '20px',
-          left: '20px',
+          zIndex: 1,
+          top: '10px',
+          left: '10px',
           padding: '10px',
-          background: '#fff',
-          border: '1px solid #ddd',
-          borderRadius: '5px',
+          background: 'white',
+          border: '1px solid #ccc',
+          cursor: 'pointer'
         }}
-        onClick={captureImageFromCamera}
-        disabled={capturing}
       >
-        {capturing ? 'Capturing...' : 'Capture Image'}
+        Capture Image
       </button>
     </div>
   );
 };
 
-export default PhotoSphereCamera;
-
-
-
-
-
-
-
-
-
-// import React, { useRef, useEffect } from "react";
-// import * as THREE from "three";
-// import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
-
-// const MultiImageSphere = () => {
-//   const mountRef = useRef(null);
-
-//   useEffect(() => {
-//     const mount = mountRef.current;
-
-//     // Scene, Camera, Renderer
-//     const scene = new THREE.Scene();
-//     const camera = new THREE.PerspectiveCamera(
-//       75,
-//       window.innerWidth / window.innerHeight,
-//       0.1,
-//       1000
-//     );
-//     const renderer = new THREE.WebGLRenderer({ antialias: true });
-//     renderer.setSize(window.innerWidth, window.innerHeight);
-//     mount.appendChild(renderer.domElement);
-
-//     // Create Canvas
-//     const canvas = document.createElement("canvas");
-//     const canvasSize = 1024; // Canvas size
-//     const gridSize = 6; // Grid size for red dots
-//     canvas.width = canvasSize;
-//     canvas.height = canvasSize;
-//     const ctx = canvas.getContext("2d");
-
-//     // Draw Red Dots on Canvas
-//     const drawRedDotsOnCanvas = () => {
-//       const dotRadius = 10; // Radius of the dots
-//       const dotSpacing = canvas.width / gridSize; // Space between dots
-
-//       // Fill the canvas with red dots in a grid pattern
-//       for (let row = 0; row < gridSize; row++) {
-//         for (let col = 0; col < gridSize; col++) {
-//           const x = col * dotSpacing + dotSpacing / 2; // X position
-//           const y = row * dotSpacing + dotSpacing / 2; // Y position
-
-//           // Draw a red circle (dot) at the calculated position
-//           ctx.beginPath();
-//           ctx.arc(x, y, dotRadius, 0, Math.PI * 2); // Create the circle
-//           ctx.fillStyle = "red"; // Set the fill color to red
-//           ctx.fill(); // Fill the circle
-//           ctx.closePath();
-//         }
-//       }
-//     };
-
-//     // Sphere with canvas texture
-//     const sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
-//     sphereGeometry.scale(-1, 1, 1); // Invert the sphere
-//     const sphereMaterial = new THREE.MeshBasicMaterial({
-//       map: new THREE.CanvasTexture(canvas),
-//     });
-//     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-//     scene.add(sphere);
-
-//     // Orbit Controls
-//     const controls = new OrbitControls(camera, renderer.domElement);
-//     controls.enableZoom = true;
-//     camera.position.set(0, 0, 0.1);
-
-//     // Draw dots and update texture
-//     drawRedDotsOnCanvas();
-//     sphereMaterial.map.needsUpdate = true;
-
-//     // Handle Window Resize
-//     const onWindowResize = () => {
-//       camera.aspect = window.innerWidth / window.innerHeight;
-//       camera.updateProjectionMatrix();
-//       renderer.setSize(window.innerWidth, window.innerHeight);
-//     };
-//     window.addEventListener("resize", onWindowResize);
-
-//     // Animation Loop
-//     const animate = () => {
-//       requestAnimationFrame(animate);
-//       controls.update();
-//       renderer.render(scene, camera);
-//     };
-//     animate();
-
-//     // Cleanup
-//     return () => {
-//       mount.removeChild(renderer.domElement);
-//       window.removeEventListener("resize", onWindowResize);
-//     };
-//   }, []);
-
-//   return (
-//     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-//       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
-//     </div>
-//   );
-// };
-
-// export default MultiImageSphere;
-
+export default SceneView;
 
 
 
