@@ -1,6 +1,6 @@
 // src/components/PanoramaViewer.jsx
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { DeviceOrientationControls } from 'three-stdlib';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
@@ -17,15 +17,15 @@ const PanoramaViewer = () => {
   const markerRef = useRef(null);
   const hiddenCanvasRef = useRef(null);
 
-  // **Top-Level Plane Dimensions**
+  // Top-Level Plane Dimensions
   const planeWidth = 4; // Adjust as needed for horizontal coverage
   const planeHeight = 5; // Adjust as needed for vertical coverage
 
   // Sphere and placement settings
-  const sphereRadius = 3;
+  const sphereRadius = 5;
   const offsetFromSurface = 0.01;
 
-  // **Global Configuration**
+  // Global Configuration
   const hfov = 60; // Horizontal Field of View in degrees
   const vfov = 60; // Vertical Field of View in degrees
 
@@ -44,13 +44,12 @@ const PanoramaViewer = () => {
   };
 
   // Calculate maximum captures based on azimuthal increments
-  let maxCaptures = 0;
-  elevationLevels.forEach(elev => {
+  const maxCaptures = elevationLevels.reduce((total, elev) => {
     const increment = azimuthIncrements[elev] || 60; // Default to 60° if not defined
-    maxCaptures += Math.ceil(360 / increment);
-  });
+    return total + Math.ceil(360 / increment);
+  }, 0);
 
-  // **Capture Queue Initialization**
+  // Capture Queue Initialization
   const captureQueueRef = useRef([]);
 
   // State to indicate when the capture queue is ready
@@ -68,7 +67,7 @@ const PanoramaViewer = () => {
     });
     captureQueueRef.current = queue;
     setQueueReady(true); // Indicate that the queue is ready
-  }, []);
+  }, [elevationLevels, azimuthIncrements]);
 
   // Refs for mutable variables
   const captureCountRef = useRef(0);
@@ -80,6 +79,7 @@ const PanoramaViewer = () => {
   const [captureCount, setCaptureCount] = useState(0);
   const [showFlash, setShowFlash] = useState(false); // For visual feedback
 
+  // Initialize Three.js Scene and Components
   useEffect(() => {
     // Initialize Three.js Scene
     const scene = new THREE.Scene();
@@ -102,7 +102,7 @@ const PanoramaViewer = () => {
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Choose Controls Based on Device
+    // Initialize Controls
     let controls;
     if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
       // For iOS 13+ devices, need to request permission
@@ -161,7 +161,6 @@ const PanoramaViewer = () => {
     videoTexture.magFilter = THREE.LinearFilter;
     videoTextureRef.current = videoTexture;
 
-    // **Use the top-level planeWidth and planeHeight**
     // Create the Video Plane and Add to Scene
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
@@ -230,38 +229,38 @@ const PanoramaViewer = () => {
       }
       stopVideoStream(video);
     };
-  }, []); // Empty dependency array ensures this runs once
+  }, [captureQueueRef, maxCaptures]);
 
   // Configure OrbitControls (Helper Function)
-  const configureOrbitControls = (controls) => {
+  const configureOrbitControls = useCallback((controls) => {
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.minDistance = 1;
     controls.maxDistance = 100;
     controls.enablePan = false;
     controls.enableZoom = true;
-  };
+  }, []);
 
   // Capture Image Function
-  const captureImage = () => {
+  const captureImage = useCallback(() => {
     if (!capturingRef.current && captureCountRef.current < maxCaptures) {
       performCapture(false);
     }
-  };
+  }, [maxCaptures]);
 
   // Auto Capture Function
-  const autoCaptureImage = async () => {
+  const autoCaptureImage = useCallback(async () => {
     return performCapture(true);
-  };
+  }, []);
 
   // Perform Capture Function
-  const performCapture = (isAuto) => {
+  const performCapture = useCallback((isAuto) => {
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
     const videoPlane = videoPlaneRef.current;
     const marker = markerRef.current;
     const hiddenCanvas = hiddenCanvasRef.current;
-    const video = videoTextureRef.current.image;
+    const video = videoTextureRef.current?.image;
     const queue = captureQueueRef.current;
 
     if (!renderer || !scene || !videoPlane || !marker || !hiddenCanvas || !video) return;
@@ -323,10 +322,10 @@ const PanoramaViewer = () => {
       };
       img.src = dataURL;
     });
-  };
+  }, [planeHeight, planeWidth]);
 
   // Helper Function to Place Objects on the Sphere
-  const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
+  const placeObjectOnSphere = useCallback((obj, azimuthDeg, elevationDeg) => {
     const r = sphereRadius - offsetFromSurface;
     const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
     const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
@@ -337,7 +336,7 @@ const PanoramaViewer = () => {
 
     obj.position.set(x, y, -z); // Negative z to face inward
     obj.lookAt(0, 0, 0); // Ensure the plane faces the center
-  };
+  }, []);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100vh', overflow: 'hidden' }}>
@@ -401,7 +400,42 @@ const PanoramaViewer = () => {
         <div style={{ marginTop: '10px' }}>
           Captures: {captureCount} / {maxCaptures}
         </div>
+        {/* Progress Bar */}
+        <div style={{ marginTop: '10px' }}>
+          <progress value={captureCount} max={maxCaptures} style={{ width: '100%' }}></progress>
+          <span>{` ${captureCount} / ${maxCaptures}`}</span>
+        </div>
       </div>
+      {/* Reset Button */}
+      {captureCount > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '10px',
+            right: '10px',
+            zIndex: 1, 
+            color: 'white', 
+            background: 'rgba(0,0,0,0.5)', 
+            padding: '10px',
+            borderRadius: '5px',
+            maxWidth: '150px'
+          }}
+        >
+          <button
+            onClick={resetPanorama}
+            style={{
+              padding: '10px 20px',
+              background: '#ffffffee',
+              border: '1px solid #ccc',
+              cursor: 'pointer',
+              borderRadius: '5px',
+              fontWeight: 'bold'
+            }}
+          >
+            Reset
+          </button>
+        </div>
+      )}
       {/* Flash Effect for Visual Feedback */}
       {showFlash && (
         <div
@@ -431,9 +465,15 @@ function createMarker() {
 }
 
 // Function to create a captured image plane
-function createCapturedPlane(texture, width, height) {
-  const geometry = new THREE.PlaneGeometry(width, height);
-  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide }); // FrontSide ensures visibility from inside
+function createCapturedPlane(texture, width, height, elevation = 0) {
+  // Adjust plane height based on elevation to account for perspective distortion (optional)
+  let adjustedHeight = height;
+  if (Math.abs(elevation) > 60) { // Near the poles
+    adjustedHeight *= 1.2; // Increase height by 20%
+  }
+  
+  const geometry = new THREE.PlaneGeometry(width, adjustedHeight);
+  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide });
   return new THREE.Mesh(geometry, material);
 }
 
@@ -452,6 +492,50 @@ function isMarkerCentered(camera, marker) {
   const dy = vector.y;
   const threshold = 0.05;
   return Math.abs(dx) < threshold && Math.abs(dy) < threshold;
+}
+
+// Function to reset the panorama capture process
+function resetPanorama() {
+  const scene = sceneRef.current;
+  const videoPlane = videoPlaneRef.current;
+  const marker = markerRef.current;
+
+  // Remove all captured planes
+  scene.children.forEach(child => {
+    if (child.userData.isCaptured) {
+      scene.remove(child);
+      child.geometry.dispose();
+      child.material.dispose();
+    }
+  });
+
+  // Reset mutable refs
+  captureCountRef.current = 0;
+  capturingRef.current = false;
+  firstCaptureDoneRef.current = false;
+
+  // Reset state variables
+  setCaptureCount(0);
+  setInstructions("Press 'Capture' to take the first image.");
+
+  // Reset the capture queue
+  captureQueueRef.current = [];
+  elevationLevels.forEach(elev => {
+    const increment = azimuthIncrements[elev] || 60;
+    const captures = Math.ceil(360 / increment);
+    for (let i = 0; i < captures; i++) {
+      captureQueueRef.current.push({ azimuth: i * increment, elevation: elev });
+    }
+  });
+
+  setQueueReady(true); // Re-indicate that the queue is ready
+
+  // Reposition video plane and marker
+  if (captureQueueRef.current.length > 0) {
+    const firstCapture = captureQueueRef.current[0];
+    placeObjectOnSphere(videoPlane, firstCapture.azimuth, firstCapture.elevation);
+    placeObjectOnSphere(marker, firstCapture.azimuth, firstCapture.elevation);
+  }
 }
 
 export default PanoramaViewer;
