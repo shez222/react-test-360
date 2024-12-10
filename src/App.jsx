@@ -1,11 +1,11 @@
 import React from "react";
-import SceneView from "./components/PanoramaViewer";
+import PanoramaViewer from "./components/PanoramaViewer";
 import "./index.css";
 
 const App = () => {
   return (
     <div className="App">
-      <SceneView />
+      <PanoramaViewer />
     </div>
   );
 };
