@@ -96,8 +96,8 @@ const SceneView = () => {
     videoTextureRef.current = videoTexture;
 
     // Plane dimensions
-    const planeWidth = 1;
-    const planeHeight = 0.75; 
+    const planeWidth = 2;
+    const planeHeight = 3; 
     const offsetFromSurface = 0.01;
 
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
@@ -106,18 +106,15 @@ const SceneView = () => {
     scene.add(videoPlane);
     videoPlaneRef.current = videoPlane;
 
-    // Angle increment for no-gap placement along the sphere's inner surface
-    const angleIncrement = planeWidth / sphereRadius;
+    // Slightly reduce angle increment to cause images to "touch" or overlap
+    const angleIncrement = (planeWidth * 0.95) / sphereRadius;
     const angleRef = { currentAngle: 0 };
 
-    // Function to place plane at a given angle around the inside of the sphere
     const placePlaneOnSphere = (plane, angle) => {
       const r = sphereRadius - offsetFromSurface;
       const x = r * Math.sin(angle);
       const z = r * Math.cos(angle);
-      // angle=0 means plane at negative Z inside sphere
       plane.position.set(x, 0, -z);
-      // Rotate so it faces inward
       plane.rotation.set(0, Math.PI - angle, 0);
     };
 
@@ -171,27 +168,19 @@ const SceneView = () => {
       const capturedTexture = new THREE.Texture(img);
       capturedTexture.needsUpdate = true;
 
-      const planeWidth = 1;
-      const planeHeight = 0.75; 
-      // Add slight tint to differentiate captured images
-      const capturedMaterial = new THREE.MeshBasicMaterial({ 
-        map: capturedTexture, 
-        side: THREE.DoubleSide,
-        color: 0xffffff // no tint or set another if needed
-      });
+      const planeWidth = 2;
+      const planeHeight = 3; 
       const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+      const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
       const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
 
       const currentAngle = angleRef.currentAngle;
       scene.add(capturedPlane);
-      // Place the captured plane where the video plane currently is
       placePlaneOnSphere(capturedPlane, currentAngle);
 
-      // Move the video plane to the next angle (no gap)
+      // Move video plane to next position with slightly smaller increment
       angleRef.currentAngle += angleIncrement;
       placePlaneOnSphere(videoPlane, angleRef.currentAngle);
-
-      console.log(`Captured image placed at angle: ${currentAngle}, video plane moved to: ${angleRef.currentAngle}`);
     };
     img.src = dataURL;
   };
@@ -236,6 +225,7 @@ const SceneView = () => {
 };
 
 export default SceneView;
+
 
 
 
