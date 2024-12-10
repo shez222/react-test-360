@@ -80,7 +80,7 @@ const PanoramaViewer = () => {
     // Add a Semi-Transparent Sphere as a Reference (Visible from Inside)
     const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
     const sphereMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+      color: 0x44aa88,
       transparent: true,
       opacity: 0.3,
       side: THREE.BackSide // Ensures visibility from inside
@@ -235,7 +235,7 @@ const PanoramaViewer = () => {
         const capturedTexture = new THREE.Texture(img);
         capturedTexture.needsUpdate = true;
 
-        // Create a plane for the captured image
+        // Create a plane for the captured image with FrontSide
         const capturedPlane = createCapturedPlane(capturedTexture, 2, 3); // planeWidth set to 2
         scene.add(capturedPlane);
 
@@ -360,7 +360,7 @@ function createMarker() {
 // Function to create a captured image plane
 function createCapturedPlane(texture, width, height) {
   const geometry = new THREE.PlaneGeometry(width, height);
-  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
+  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide });
   return new THREE.Mesh(geometry, material);
 }
 
@@ -382,6 +382,12 @@ function isMarkerCentered(camera, marker) {
 }
 
 export default PanoramaViewer;
+
+
+
+
+
+
 
 
 
@@ -413,24 +419,22 @@ export default PanoramaViewer;
 //   const sphereRadius = 5;
 //   const offsetFromSurface = 0.01;
 
+//   // State variables
 //   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
 //   const [firstCaptureDone, setFirstCaptureDone] = useState(false);
 //   const [captureCount, setCaptureCount] = useState(0);
 //   const maxCaptures = 36; // 36 captures for 360° (every 10 degrees)
-
-//   const angleInfoRef = useRef({
-//     angleIncrement: (Math.PI * 2) / maxCaptures, // 0.1745 radians (~10 degrees)
-//     angleRef: { currentAngle: 0 },
-//     placeObjectOnSphere: () => {}
-//   });
+//   const angleIncrement = (Math.PI * 2) / maxCaptures; // ~0.1745 radians (~10 degrees)
+//   const [currentAngle, setCurrentAngle] = useState(0);
+//   const [capturing, setCapturing] = useState(false);
 
 //   useEffect(() => {
-//     // Create the scene
+//     // Initialize Three.js Scene
 //     const scene = new THREE.Scene();
 //     scene.background = new THREE.Color(0x000000);
 //     sceneRef.current = scene;
 
-//     // Setup camera at the center of the sphere
+//     // Setup Camera
 //     const camera = new THREE.PerspectiveCamera(
 //       75,
 //       mountRef.current.clientWidth / mountRef.current.clientHeight,
@@ -440,33 +444,42 @@ export default PanoramaViewer;
 //     camera.position.set(0, 0, 0);
 //     cameraRef.current = camera;
 
-//     // Setup renderer
+//     // Setup Renderer
 //     const renderer = new THREE.WebGLRenderer({ antialias: true });
 //     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
 //     mountRef.current.appendChild(renderer.domElement);
 //     rendererRef.current = renderer;
 
-//     // Choose controls based on device
+//     // Choose Controls Based on Device
 //     let controls;
-//     if (window.DeviceOrientationEvent) {
-//       // Use DeviceOrientationControls for mobile devices
+//     if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+//       // For iOS 13+ devices, need to request permission
+//       DeviceOrientationEvent.requestPermission()
+//         .then(permissionState => {
+//           if (permissionState === 'granted') {
+//             controls = new DeviceOrientationControls(camera);
+//             controls.connect();
+//           } else {
+//             console.warn('Device Orientation permission denied.');
+//             controls = new OrbitControls(camera, renderer.domElement);
+//             configureOrbitControls(controls);
+//           }
+//         })
+//         .catch(console.error);
+//     } else if (window.DeviceOrientationEvent) {
+//       // Use DeviceOrientationControls for other mobile devices
 //       controls = new DeviceOrientationControls(camera);
 //       controls.connect();
 //     } else {
 //       // Use OrbitControls for desktop
 //       controls = new OrbitControls(camera, renderer.domElement);
-//       controls.enableDamping = true;
-//       controls.dampingFactor = 0.05;
-//       controls.minDistance = 1;
-//       controls.maxDistance = 100;
-//       controls.enablePan = false;
-//       controls.enableZoom = true;
+//       configureOrbitControls(controls);
 //     }
 
-//     // Add a semi-transparent sphere as a reference (visible from inside)
+//     // Add a Semi-Transparent Sphere as a Reference (Visible from Inside)
 //     const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
 //     const sphereMaterial = new THREE.MeshBasicMaterial({
-//       color: 0x44aa88,
+//       color: 0xffffff,
 //       transparent: true,
 //       opacity: 0.3,
 //       side: THREE.BackSide // Ensures visibility from inside
@@ -474,7 +487,7 @@ export default PanoramaViewer;
 //     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
 //     scene.add(sphere);
 
-//     // Setup video feed from the back camera
+//     // Setup Video Feed from the Back Camera
 //     const video = document.createElement('video');
 //     video.setAttribute('playsinline', '');
 //     video.autoplay = true;
@@ -496,19 +509,18 @@ export default PanoramaViewer;
 //     videoTexture.magFilter = THREE.LinearFilter;
 //     videoTextureRef.current = videoTexture;
 
-//     // Dimensions for the video and captured planes
-//     const planeWidth = 1; // Adjusted to match arc length for 10° increments
+//     // Dimensions for the Video Plane
+//     const planeWidth = 2; // Adjusted to 2 as per your request
 //     const planeHeight = 3;
-//     const angleIncrement = angleInfoRef.current.angleIncrement; // 0.1745 radians (~10 degrees)
 
-//     // Create the video plane and add to scene
+//     // Create the Video Plane and Add to Scene
 //     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
 //     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
 //     const videoPlane = new THREE.Mesh(planeGeometry, planeMaterial);
 //     scene.add(videoPlane);
 //     videoPlaneRef.current = videoPlane;
 
-//     // Helper function to place objects on the inner surface of the sphere
+//     // Helper Function to Place Objects on the Inner Surface of the Sphere
 //     const placeObjectOnSphere = (obj, angle) => {
 //       const r = sphereRadius - offsetFromSurface;
 //       const x = r * Math.sin(angle);
@@ -517,30 +529,22 @@ export default PanoramaViewer;
 //       obj.rotation.set(0, Math.PI - angle, 0);
 //     };
 
-//     // Initial angle and placement
-//     const angleRef = { currentAngle: 0 };
-//     placeObjectOnSphere(videoPlane, angleRef.currentAngle);
+//     // Initial Placement
+//     placeObjectOnSphere(videoPlane, currentAngle);
 
-//     // Add a marker (red dot) to guide the user for next captures
+//     // Add a Marker (Red Dot) to Guide the User for Next Captures
 //     const marker = createMarker();
 //     scene.add(marker);
 //     markerRef.current = marker;
-//     placeObjectOnSphere(marker, angleRef.currentAngle);
+//     placeObjectOnSphere(marker, currentAngle);
 
-//     // Store references for later use
-//     angleInfoRef.current = {
-//       angleIncrement,
-//       angleRef,
-//       placeObjectOnSphere
-//     };
-
-//     // Create a hidden canvas for capturing video frames
+//     // Create a Hidden Canvas for Capturing Video Frames
 //     const hiddenCanvas = document.createElement('canvas');
 //     hiddenCanvas.width = video.videoWidth || 640;
 //     hiddenCanvas.height = video.videoHeight || 480;
 //     hiddenCanvasRef.current = hiddenCanvas;
 
-//     // Handle window resizing
+//     // Handle Window Resizing
 //     const onWindowResize = () => {
 //       camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
 //       camera.updateProjectionMatrix();
@@ -548,25 +552,28 @@ export default PanoramaViewer;
 //     };
 //     window.addEventListener('resize', onWindowResize, false);
 
-//     let capturing = false;
-
-//     // Animation loop
+//     // Animation Loop
 //     const animate = () => {
 //       requestAnimationFrame(animate);
 //       controls.update();
 //       renderer.render(scene, camera);
 
-//       // After the first capture, auto-capture when aligned
-//       if (firstCaptureDone && !capturing && captureCount < maxCaptures && isMarkerCentered(camera, marker)) {
-//         capturing = true;
+//       // After the First Capture, Auto-Capture When Aligned
+//       if (
+//         firstCaptureDone &&
+//         !capturing &&
+//         captureCount < maxCaptures &&
+//         isMarkerCentered(camera, marker)
+//       ) {
+//         setCapturing(true);
 //         autoCaptureImage().then(() => {
-//           capturing = false;
+//           setCapturing(false);
 //         });
 //       }
 //     };
 //     animate();
 
-//     // Cleanup on unmount
+//     // Cleanup on Unmount
 //     return () => {
 //       window.removeEventListener('resize', onWindowResize);
 //       if (mountRef.current && renderer.domElement) {
@@ -580,14 +587,24 @@ export default PanoramaViewer;
 //       }
 //       stopVideoStream(video);
 //     };
-//   }, [firstCaptureDone, captureCount]);
+//   }, [firstCaptureDone, captureCount, currentAngle, capturing]);
 
-//   // First manual capture via button
+//   // Configure OrbitControls (Helper Function)
+//   const configureOrbitControls = (controls) => {
+//     controls.enableDamping = true;
+//     controls.dampingFactor = 0.05;
+//     controls.minDistance = 1;
+//     controls.maxDistance = 100;
+//     controls.enablePan = false;
+//     controls.enableZoom = true;
+//   };
+
+//   // First Manual Capture via Button
 //   const captureImage = () => {
 //     performCapture(false);
 //   };
 
-//   // Subsequent captures happen automatically once aligned
+//   // Subsequent Captures Happen Automatically Once Aligned
 //   const autoCaptureImage = async () => {
 //     return performCapture(true);
 //   };
@@ -602,35 +619,38 @@ export default PanoramaViewer;
 
 //     if (!renderer || !scene || !videoPlane || !marker || !hiddenCanvas || !video) return;
 
-//     const { angleIncrement, angleRef, placeObjectOnSphere } = angleInfoRef.current;
-
-//     // Draw the current video frame onto the hidden canvas
 //     const ctx = hiddenCanvas.getContext('2d');
 //     hiddenCanvas.width = video.videoWidth || 640;
 //     hiddenCanvas.height = video.videoHeight || 480;
 //     ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-//     // Get the data URL from the hidden canvas
+//     // Get the Data URL from the Hidden Canvas
 //     const dataURL = hiddenCanvas.toDataURL('image/png');
 
 //     return new Promise((resolve) => {
 //       const img = new Image();
 //       img.onload = () => {
+//         // Create a texture from the captured image
 //         const capturedTexture = new THREE.Texture(img);
 //         capturedTexture.needsUpdate = true;
 
-//         const capturedPlane = createCapturedPlane(capturedTexture, 1, 3); // planeWidth = 1, planeHeight = 3
+//         // Create a plane for the captured image
+//         const capturedPlane = createCapturedPlane(capturedTexture, 2, 3); // planeWidth set to 2
 //         scene.add(capturedPlane);
-//         placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
-//         console.log(`Captured image placed at angle: ${(angleRef.currentAngle * (180 / Math.PI)).toFixed(2)}°`);
 
-//         // Move to next angle
-//         angleRef.currentAngle += angleIncrement;
-//         if (angleRef.currentAngle >= Math.PI * 2) {
-//           angleRef.currentAngle -= Math.PI * 2; // Wrap around
+//         // Place the captured plane on the sphere at the current angle
+//         placeObjectOnSphere(capturedPlane, currentAngle);
+
+//         console.log(`Captured image placed at angle: ${(currentAngle * (180 / Math.PI)).toFixed(2)}°`);
+
+//         // Move to Next Angle
+//         let newAngle = currentAngle + angleIncrement;
+//         if (newAngle >= Math.PI * 2) {
+//           newAngle -= Math.PI * 2; // Wrap around
 //         }
-//         placeObjectOnSphere(videoPlane, angleRef.currentAngle);
-//         placeObjectOnSphere(marker, angleRef.currentAngle);
+//         setCurrentAngle(newAngle);
+//         placeObjectOnSphere(videoPlaneRef.current, newAngle);
+//         placeObjectOnSphere(marker, newAngle);
 
 //         setCaptureCount((prev) => prev + 1);
 
@@ -647,6 +667,17 @@ export default PanoramaViewer;
 //       };
 //       img.src = dataURL;
 //     });
+//   };
+
+//   // Helper Function to Place Objects on the Sphere
+//   const placeObjectOnSphere = (obj, angle) => {
+//     const sphereRadius = 5;
+//     const offsetFromSurface = 0.01;
+//     const r = sphereRadius - offsetFromSurface;
+//     const x = r * Math.sin(angle);
+//     const z = r * Math.cos(angle);
+//     obj.position.set(x, 0, -z);
+//     obj.rotation.set(0, Math.PI - angle, 0);
 //   };
 
 //   return (
@@ -677,7 +708,7 @@ export default PanoramaViewer;
 //           background: 'rgba(255,255,255,0.1)'
 //         }}
 //       />
-//       {/* Instructions and (initial) Capture Button */}
+//       {/* Instructions and (Initial) Capture Button */}
 //       <div 
 //         style={{ 
 //           position: 'absolute', 
@@ -718,18 +749,21 @@ export default PanoramaViewer;
 
 // /** Helper Functions **/
 
+// // Function to create the red marker
 // function createMarker() {
 //   const markerGeometry = new THREE.SphereGeometry(0.1, 16, 16);
 //   const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
 //   return new THREE.Mesh(markerGeometry, markerMaterial);
 // }
 
+// // Function to create a captured image plane
 // function createCapturedPlane(texture, width, height) {
 //   const geometry = new THREE.PlaneGeometry(width, height);
 //   const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
 //   return new THREE.Mesh(geometry, material);
 // }
 
+// // Function to stop the video stream
 // function stopVideoStream(video) {
 //   if (video.srcObject) {
 //     const tracks = video.srcObject.getTracks();
@@ -737,6 +771,7 @@ export default PanoramaViewer;
 //   }
 // }
 
+// // Function to check if the marker is centered in the view
 // function isMarkerCentered(camera, marker) {
 //   const vector = new THREE.Vector3().copy(marker.position).project(camera);
 //   const dx = vector.x;
@@ -746,6 +781,13 @@ export default PanoramaViewer;
 // }
 
 // export default PanoramaViewer;
+
+
+
+
+
+
+
 
 
 
