@@ -22,8 +22,8 @@ const PanoramaViewer = () => {
 
   // Capture configuration
   const elevationLevels = [-60, -30, 0, 30, 60]; // Degrees
-  const maxCapturesPerElevation = 36; // 10-degree increments
-  const angleIncrement = 10; // Degrees
+  const maxCapturesPerElevation = 24; // 15-degree increments
+  const angleIncrement = 15; // Degrees
 
   // Refs for mutable variables
   const captureCountRef = useRef(0);
@@ -35,7 +35,7 @@ const PanoramaViewer = () => {
   // State variables for UI
   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
   const [captureCount, setCaptureCount] = useState(0);
-  const maxCaptures = elevationLevels.length * maxCapturesPerElevation; // e.g., 5 x 36 = 180
+  const maxCaptures = elevationLevels.length * maxCapturesPerElevation; // e.g., 5 x 24 = 120
 
   useEffect(() => {
     // Initialize Three.js Scene
@@ -119,8 +119,8 @@ const PanoramaViewer = () => {
     videoTextureRef.current = videoTexture;
 
     // Dimensions for the Video Plane
-    const planeWidth = 1; // Reduced to 1 to prevent overlapping
-    const planeHeight = 1.5; // Adjusted proportionally
+    const planeWidth = 2; // Increased to 2 units
+    const planeHeight = 3; // Increased to 3 units
 
     // Create the Video Plane and Add to Scene
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
@@ -253,7 +253,7 @@ const PanoramaViewer = () => {
         capturedTexture.needsUpdate = true;
 
         // Create a plane for the captured image with FrontSide
-        const capturedPlane = createCapturedPlane(capturedTexture, 1, 1.5); // planeWidth set to 1
+        const capturedPlane = createCapturedPlane(capturedTexture, planeWidth, planeHeight); // planeWidth set to 2
         capturedPlane.userData.isCaptured = true; // Tag for potential removal/reset
         scene.add(capturedPlane);
 
