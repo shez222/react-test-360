@@ -6,6 +6,7 @@ import { DeviceOrientationControls } from 'three-stdlib';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 const PanoramaViewer = () => {
+  // Refs for Three.js components
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const cameraRef = useRef(null);
@@ -17,28 +18,56 @@ const PanoramaViewer = () => {
   const hiddenCanvasRef = useRef(null);
 
   // **Top-Level Plane Dimensions**
-  const planeWidth = 4; // Increased to 4 units for wider horizontal coverage
-  const planeHeight = 5; // Increased to 5 units for taller vertical coverage
+  const planeWidth = 4; // Adjust as needed for horizontal coverage
+  const planeHeight = 5; // Adjust as needed for vertical coverage
 
   // Sphere and placement settings
   const sphereRadius = 5;
   const offsetFromSurface = 0.01;
 
-  // Capture configuration
-  const hfov = 60; // Horizontal Field of View in degrees (adjust based on actual camera)
-  const vfov = 45; // Vertical Field of View in degrees (adjust based on actual camera)
+  // **Global Configuration**
+  const hfov = 60; // Horizontal Field of View in degrees
+  const vfov = 60; // Vertical Field of View in degrees
 
-  const azIncrement = hfov * 0.75; // 45°
-  const elevationStep = vfov * 0.75; // 33.75°, rounded to 30° for simplicity
+  // Define elevation levels starting from equator and alternating upwards and downwards
+  const elevationLevels = [0, 30, -30, 60, -60, 90, -90]; // Degrees
 
-  const elevationLevels = [-60, -30, 0, 30, 60]; // Degrees
-  const maxCapturesPerElevation = Math.ceil(360 / azIncrement); // 8 captures
-  const maxCaptures = elevationLevels.length * maxCapturesPerElevation; // 5 * 8 = 40 captures
+  // Define azimuthal increments based on elevation (Negative keys are quoted)
+  const azimuthIncrements = {
+    0: 30,    // Equator: high density
+    30: 45,   // Upper mid
+    '-30': 45, // Lower mid
+    60: 60,   // Upper high
+    '-60': 60, // Lower high
+    90: 90,   // North Pole
+    '-90': 90  // South Pole
+  };
+
+  // Calculate maximum captures based on azimuthal increments
+  let maxCaptures = 0;
+  elevationLevels.forEach(elev => {
+    const increment = azimuthIncrements[elev] || 60; // Default to 60° if not defined
+    maxCaptures += Math.ceil(360 / increment);
+  });
+
+  // **Capture Queue Initialization**
+  const captureQueueRef = useRef([]);
+
+  // Initialize the capture queue
+  useEffect(() => {
+    const queue = [];
+    elevationLevels.forEach(elev => {
+      const increment = azimuthIncrements[elev] || 60;
+      const captures = Math.ceil(360 / increment);
+      for (let i = 0; i < captures; i++) {
+        queue.push({ azimuth: i * increment, elevation: elev });
+      }
+    });
+    captureQueueRef.current = queue;
+  }, []);
 
   // Refs for mutable variables
   const captureCountRef = useRef(0);
-  const currentAzimuthRef = useRef(0); // Horizontal angle in degrees
-  const currentElevationIndexRef = useRef(0); // Index for elevation levels
   const capturingRef = useRef(false);
   const firstCaptureDoneRef = useRef(false);
 
@@ -79,7 +108,7 @@ const PanoramaViewer = () => {
             controls = new DeviceOrientationControls(camera);
             controls.connect();
           } else {
-            console.warn('Device Orientation permission denied.');
+            console.warn('Device Orientation permission denied. Falling back to OrbitControls.');
             controls = new OrbitControls(camera, renderer.domElement);
             configureOrbitControls(controls);
           }
@@ -136,29 +165,17 @@ const PanoramaViewer = () => {
     scene.add(videoPlane);
     videoPlaneRef.current = videoPlane;
 
-    // Helper Function to Place Objects on the Inner Surface of the Sphere
-    const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
-      const r = sphereRadius - offsetFromSurface;
-      const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
-      const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
-
-      const x = r * Math.cos(elevationRad) * Math.sin(azimuthRad);
-      const y = r * Math.sin(elevationRad);
-      const z = r * Math.cos(elevationRad) * Math.cos(azimuthRad);
-
-      obj.position.set(x, y, -z); // Negative z to face inward
-      obj.lookAt(0, 0, 0); // Ensure the plane faces the center
-    };
-
-    // Initial Placement with first elevation
-    const initialElevation = elevationLevels[currentElevationIndexRef.current];
-    placeObjectOnSphere(videoPlane, currentAzimuthRef.current, initialElevation);
-
     // Add a Marker (Red Dot) to Guide the User for Next Captures
     const marker = createMarker();
     scene.add(marker);
     markerRef.current = marker;
-    placeObjectOnSphere(marker, currentAzimuthRef.current, initialElevation);
+
+    // Place Video Plane and Marker at the first capture position
+    if (captureQueueRef.current.length > 0) {
+      const firstCapture = captureQueueRef.current[0];
+      placeObjectOnSphere(videoPlane, firstCapture.azimuth, firstCapture.elevation);
+      placeObjectOnSphere(marker, firstCapture.azimuth, firstCapture.elevation);
+    }
 
     // Create a Hidden Canvas for Capturing Video Frames
     const hiddenCanvas = document.createElement('canvas');
@@ -241,9 +258,18 @@ const PanoramaViewer = () => {
     const marker = markerRef.current;
     const hiddenCanvas = hiddenCanvasRef.current;
     const video = videoTextureRef.current.image;
+    const queue = captureQueueRef.current;
 
     if (!renderer || !scene || !videoPlane || !marker || !hiddenCanvas || !video) return;
 
+    if (queue.length === 0) {
+      setInstructions("All captures completed. Explore your panorama!");
+      return;
+    }
+
+    const { azimuth, elevation } = queue.shift(); // Dequeue the next capture
+
+    // Draw the current video frame to the hidden canvas
     const ctx = hiddenCanvas.getContext('2d');
     hiddenCanvas.width = video.videoWidth || 640;
     hiddenCanvas.height = video.videoHeight || 480;
@@ -264,46 +290,28 @@ const PanoramaViewer = () => {
         capturedPlane.userData.isCaptured = true; // Tag for potential removal/reset
         scene.add(capturedPlane);
 
-        // Determine current elevation
-        const currentElevation = elevationLevels[currentElevationIndexRef.current];
-
         // Place the captured plane on the sphere at the current azimuth and elevation
-        placeObjectOnSphere(capturedPlane, currentAzimuthRef.current, currentElevation);
+        placeObjectOnSphere(capturedPlane, azimuth, elevation);
 
-        console.log(`Captured image placed at Azimuth: ${currentAzimuthRef.current}°, Elevation: ${currentElevation}°`);
+        console.log(`Captured image placed at Azimuth: ${azimuth}°, Elevation: ${elevation}°`);
 
         // Increment capture count
         captureCountRef.current += 1;
         setCaptureCount(captureCountRef.current); // Update state for UI
 
-        // Check if all captures for current elevation are done
-        if (currentAzimuthRef.current >= 360 - azIncrement) {
-          currentAzimuthRef.current = 0; // Reset azimuth for next elevation
-          currentElevationIndexRef.current += 1; // Move to next elevation
-
-          if (currentElevationIndexRef.current >= elevationLevels.length) {
-            setInstructions("360° capture completed. Explore your panorama!");
-            return resolve();
-          }
-        } else {
-          currentAzimuthRef.current += azIncrement; // Move to next azimuth
-        }
-
         // Update Instructions
         if (!isAuto) {
-          setInstructions("Rotate the device to align the red dot with the center. Once aligned, image capture will happen automatically.");
+          setInstructions("Image captured. Rotate the device to align the next marker for automatic capture.");
           firstCaptureDoneRef.current = true;
         } else {
-          const currentCaptureNumber = captureCountRef.current;
-          setInstructions(`Image ${currentCaptureNumber} captured. Rotate to align and auto-capture again.`);
+          setInstructions(`Image ${captureCountRef.current} captured. Rotate to align and auto-capture again.`);
         }
 
         // Move Video Plane and Marker to New Azimuth and Elevation
-        const newElevation = elevationLevels[currentElevationIndexRef.current] || elevationLevels[elevationLevels.length - 1];
-        placeObjectOnSphere(videoPlaneRef.current, currentAzimuthRef.current, newElevation);
-        placeObjectOnSphere(marker, currentAzimuthRef.current, newElevation);
+        placeObjectOnSphere(videoPlaneRef.current, azimuth, elevation);
+        placeObjectOnSphere(marker, azimuth, elevation);
 
-        // **Flash Effect for Visual Feedback**
+        // Flash Effect for Visual Feedback
         setShowFlash(true);
         setTimeout(() => setShowFlash(false), 200); // Flash duration: 200ms
 
@@ -369,7 +377,7 @@ const PanoramaViewer = () => {
           maxWidth: '300px'
         }}
       >
-        {captureCount < maxCaptures && !firstCaptureDoneRef.current && (
+        {captureCount < maxCaptures && captureQueueRef.current.length > 0 && !firstCaptureDoneRef.current && (
           <button
             onClick={captureImage}
             style={{
@@ -421,7 +429,7 @@ function createMarker() {
 // Function to create a captured image plane
 function createCapturedPlane(texture, width, height) {
   const geometry = new THREE.PlaneGeometry(width, height);
-  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide }); // Changed to FrontSide
+  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide }); // FrontSide ensures visibility from inside
   return new THREE.Mesh(geometry, material);
 }
 
@@ -443,6 +451,464 @@ function isMarkerCentered(camera, marker) {
 }
 
 export default PanoramaViewer;
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // src/components/PanoramaViewer.jsx
+
+// import React, { useEffect, useRef, useState } from 'react';
+// import * as THREE from 'three';
+// import { DeviceOrientationControls } from 'three-stdlib';
+// import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+
+// const PanoramaViewer = () => {
+//   const mountRef = useRef(null);
+//   const rendererRef = useRef(null);
+//   const cameraRef = useRef(null);
+//   const sceneRef = useRef(null);
+
+//   const videoPlaneRef = useRef(null);
+//   const videoTextureRef = useRef(null);
+//   const markerRef = useRef(null);
+//   const hiddenCanvasRef = useRef(null);
+
+//   // **Top-Level Plane Dimensions**
+//   const planeWidth = 4; // Increased to 4 units for wider horizontal coverage
+//   const planeHeight = 5; // Increased to 5 units for taller vertical coverage
+
+//   // Sphere and placement settings
+//   const sphereRadius = 5;
+//   const offsetFromSurface = 0.01;
+
+//   // Capture configuration
+//   const hfov = 60; // Horizontal Field of View in degrees (adjust based on actual camera)
+//   const vfov = 45; // Vertical Field of View in degrees (adjust based on actual camera)
+
+//   const azIncrement = hfov * 0.75; // 45°
+//   const elevationStep = vfov * 0.75; // 33.75°, rounded to 30° for simplicity
+
+//   const elevationLevels = [-60, -30, 0, 30, 60]; // Degrees
+//   const maxCapturesPerElevation = Math.ceil(360 / azIncrement); // 8 captures
+//   const maxCaptures = elevationLevels.length * maxCapturesPerElevation; // 5 * 8 = 40 captures
+
+//   // Refs for mutable variables
+//   const captureCountRef = useRef(0);
+//   const currentAzimuthRef = useRef(0); // Horizontal angle in degrees
+//   const currentElevationIndexRef = useRef(0); // Index for elevation levels
+//   const capturingRef = useRef(false);
+//   const firstCaptureDoneRef = useRef(false);
+
+//   // State variables for UI
+//   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
+//   const [captureCount, setCaptureCount] = useState(0);
+//   const [showFlash, setShowFlash] = useState(false); // For visual feedback
+
+//   useEffect(() => {
+//     // Initialize Three.js Scene
+//     const scene = new THREE.Scene();
+//     scene.background = new THREE.Color(0x000000);
+//     sceneRef.current = scene;
+
+//     // Setup Camera
+//     const camera = new THREE.PerspectiveCamera(
+//       75,
+//       mountRef.current.clientWidth / mountRef.current.clientHeight,
+//       0.1,
+//       1000
+//     );
+//     camera.position.set(0, 0, 0);
+//     cameraRef.current = camera;
+
+//     // Setup Renderer
+//     const renderer = new THREE.WebGLRenderer({ antialias: true });
+//     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+//     mountRef.current.appendChild(renderer.domElement);
+//     rendererRef.current = renderer;
+
+//     // Choose Controls Based on Device
+//     let controls;
+//     if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+//       // For iOS 13+ devices, need to request permission
+//       DeviceOrientationEvent.requestPermission()
+//         .then(permissionState => {
+//           if (permissionState === 'granted') {
+//             controls = new DeviceOrientationControls(camera);
+//             controls.connect();
+//           } else {
+//             console.warn('Device Orientation permission denied.');
+//             controls = new OrbitControls(camera, renderer.domElement);
+//             configureOrbitControls(controls);
+//           }
+//         })
+//         .catch(console.error);
+//     } else if (window.DeviceOrientationEvent) {
+//       // Use DeviceOrientationControls for other mobile devices
+//       controls = new DeviceOrientationControls(camera);
+//       controls.connect();
+//     } else {
+//       // Use OrbitControls for desktop
+//       controls = new OrbitControls(camera, renderer.domElement);
+//       configureOrbitControls(controls);
+//     }
+
+//     // Add a Semi-Transparent Sphere as a Reference (Visible from Inside)
+//     const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
+//     const sphereMaterial = new THREE.MeshBasicMaterial({
+//       color: 0x44aa88,
+//       transparent: true,
+//       opacity: 0.3,
+//       side: THREE.BackSide // Ensures visibility from inside
+//     });
+//     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+//     scene.add(sphere);
+
+//     // Setup Video Feed from the Back Camera
+//     const video = document.createElement('video');
+//     video.setAttribute('playsinline', '');
+//     video.autoplay = true;
+//     video.muted = true;
+
+//     navigator.mediaDevices
+//       .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+//       .then((stream) => {
+//         video.srcObject = stream;
+//         video.play();
+//       })
+//       .catch((err) => {
+//         console.error('Error accessing back camera: ', err);
+//         setInstructions("Unable to access the camera. Please check permissions.");
+//       });
+
+//     const videoTexture = new THREE.VideoTexture(video);
+//     videoTexture.minFilter = THREE.LinearFilter;
+//     videoTexture.magFilter = THREE.LinearFilter;
+//     videoTextureRef.current = videoTexture;
+
+//     // **Use the top-level planeWidth and planeHeight**
+//     // Create the Video Plane and Add to Scene
+//     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+//     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+//     const videoPlane = new THREE.Mesh(planeGeometry, planeMaterial);
+//     scene.add(videoPlane);
+//     videoPlaneRef.current = videoPlane;
+
+//     // Helper Function to Place Objects on the Inner Surface of the Sphere
+//     const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
+//       const r = sphereRadius - offsetFromSurface;
+//       const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
+//       const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
+
+//       const x = r * Math.cos(elevationRad) * Math.sin(azimuthRad);
+//       const y = r * Math.sin(elevationRad);
+//       const z = r * Math.cos(elevationRad) * Math.cos(azimuthRad);
+
+//       obj.position.set(x, y, -z); // Negative z to face inward
+//       obj.lookAt(0, 0, 0); // Ensure the plane faces the center
+//     };
+
+//     // Initial Placement with first elevation
+//     const initialElevation = elevationLevels[currentElevationIndexRef.current];
+//     placeObjectOnSphere(videoPlane, currentAzimuthRef.current, initialElevation);
+
+//     // Add a Marker (Red Dot) to Guide the User for Next Captures
+//     const marker = createMarker();
+//     scene.add(marker);
+//     markerRef.current = marker;
+//     placeObjectOnSphere(marker, currentAzimuthRef.current, initialElevation);
+
+//     // Create a Hidden Canvas for Capturing Video Frames
+//     const hiddenCanvas = document.createElement('canvas');
+//     hiddenCanvas.width = video.videoWidth || 640;
+//     hiddenCanvas.height = video.videoHeight || 480;
+//     hiddenCanvasRef.current = hiddenCanvas;
+
+//     // Handle Window Resizing
+//     const onWindowResize = () => {
+//       camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+//       camera.updateProjectionMatrix();
+//       renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+//     };
+//     window.addEventListener('resize', onWindowResize, false);
+
+//     // Animation Loop
+//     const animate = () => {
+//       requestAnimationFrame(animate);
+//       if (controls) controls.update();
+//       renderer.render(scene, camera);
+
+//       // After the First Capture, Auto-Capture When Aligned
+//       if (
+//         firstCaptureDoneRef.current &&
+//         !capturingRef.current &&
+//         captureCountRef.current < maxCaptures &&
+//         isMarkerCentered(camera, marker)
+//       ) {
+//         capturingRef.current = true;
+//         autoCaptureImage().then(() => {
+//           capturingRef.current = false;
+//         });
+//       }
+//     };
+//     animate();
+
+//     // Cleanup on Unmount
+//     return () => {
+//       window.removeEventListener('resize', onWindowResize);
+//       if (mountRef.current && renderer.domElement) {
+//         mountRef.current.removeChild(renderer.domElement);
+//       }
+//       renderer.dispose();
+//       if (controls instanceof DeviceOrientationControls) {
+//         controls.disconnect();
+//       } else if (controls instanceof OrbitControls) {
+//         controls.dispose();
+//       }
+//       stopVideoStream(video);
+//     };
+//   }, []); // Empty dependency array ensures this runs once
+
+//   // Configure OrbitControls (Helper Function)
+//   const configureOrbitControls = (controls) => {
+//     controls.enableDamping = true;
+//     controls.dampingFactor = 0.05;
+//     controls.minDistance = 1;
+//     controls.maxDistance = 100;
+//     controls.enablePan = false;
+//     controls.enableZoom = true;
+//   };
+
+//   // Capture Image Function
+//   const captureImage = () => {
+//     if (!capturingRef.current && captureCountRef.current < maxCaptures) {
+//       performCapture(false);
+//     }
+//   };
+
+//   // Auto Capture Function
+//   const autoCaptureImage = async () => {
+//     return performCapture(true);
+//   };
+
+//   // Perform Capture Function
+//   const performCapture = (isAuto) => {
+//     const renderer = rendererRef.current;
+//     const scene = sceneRef.current;
+//     const videoPlane = videoPlaneRef.current;
+//     const marker = markerRef.current;
+//     const hiddenCanvas = hiddenCanvasRef.current;
+//     const video = videoTextureRef.current.image;
+
+//     if (!renderer || !scene || !videoPlane || !marker || !hiddenCanvas || !video) return;
+
+//     const ctx = hiddenCanvas.getContext('2d');
+//     hiddenCanvas.width = video.videoWidth || 640;
+//     hiddenCanvas.height = video.videoHeight || 480;
+//     ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+//     // Get the Data URL from the Hidden Canvas
+//     const dataURL = hiddenCanvas.toDataURL('image/png');
+
+//     return new Promise((resolve) => {
+//       const img = new Image();
+//       img.onload = () => {
+//         // Create a texture from the captured image
+//         const capturedTexture = new THREE.Texture(img);
+//         capturedTexture.needsUpdate = true;
+
+//         // Create a plane for the captured image with FrontSide
+//         const capturedPlane = createCapturedPlane(capturedTexture, planeWidth, planeHeight); // planeWidth and planeHeight are defined
+//         capturedPlane.userData.isCaptured = true; // Tag for potential removal/reset
+//         scene.add(capturedPlane);
+
+//         // Determine current elevation
+//         const currentElevation = elevationLevels[currentElevationIndexRef.current];
+
+//         // Place the captured plane on the sphere at the current azimuth and elevation
+//         placeObjectOnSphere(capturedPlane, currentAzimuthRef.current, currentElevation);
+
+//         console.log(`Captured image placed at Azimuth: ${currentAzimuthRef.current}°, Elevation: ${currentElevation}°`);
+
+//         // Increment capture count
+//         captureCountRef.current += 1;
+//         setCaptureCount(captureCountRef.current); // Update state for UI
+
+//         // Check if all captures for current elevation are done
+//         if (currentAzimuthRef.current >= 360 - azIncrement) {
+//           currentAzimuthRef.current = 0; // Reset azimuth for next elevation
+//           currentElevationIndexRef.current += 1; // Move to next elevation
+
+//           if (currentElevationIndexRef.current >= elevationLevels.length) {
+//             setInstructions("360° capture completed. Explore your panorama!");
+//             return resolve();
+//           }
+//         } else {
+//           currentAzimuthRef.current += azIncrement; // Move to next azimuth
+//         }
+
+//         // Update Instructions
+//         if (!isAuto) {
+//           setInstructions("Rotate the device to align the red dot with the center. Once aligned, image capture will happen automatically.");
+//           firstCaptureDoneRef.current = true;
+//         } else {
+//           const currentCaptureNumber = captureCountRef.current;
+//           setInstructions(`Image ${currentCaptureNumber} captured. Rotate to align and auto-capture again.`);
+//         }
+
+//         // Move Video Plane and Marker to New Azimuth and Elevation
+//         const newElevation = elevationLevels[currentElevationIndexRef.current] || elevationLevels[elevationLevels.length - 1];
+//         placeObjectOnSphere(videoPlaneRef.current, currentAzimuthRef.current, newElevation);
+//         placeObjectOnSphere(marker, currentAzimuthRef.current, newElevation);
+
+//         // **Flash Effect for Visual Feedback**
+//         setShowFlash(true);
+//         setTimeout(() => setShowFlash(false), 200); // Flash duration: 200ms
+
+//         resolve();
+//       };
+//       img.src = dataURL;
+//     });
+//   };
+
+//   // Helper Function to Place Objects on the Sphere
+//   const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
+//     const r = sphereRadius - offsetFromSurface;
+//     const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
+//     const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
+
+//     const x = r * Math.cos(elevationRad) * Math.sin(azimuthRad);
+//     const y = r * Math.sin(elevationRad);
+//     const z = r * Math.cos(elevationRad) * Math.cos(azimuthRad);
+
+//     obj.position.set(x, y, -z); // Negative z to face inward
+//     obj.lookAt(0, 0, 0); // Ensure the plane faces the center
+//   };
+
+//   return (
+//     <div style={{ position: 'relative', width: '100%', height: '100vh', overflow: 'hidden' }}>
+//       <div
+//         ref={mountRef}
+//         style={{
+//           width: '100%',
+//           height: '100%',
+//           display: 'block',
+//           position: 'absolute',
+//           top: 0,
+//           left: 0
+//         }}
+//       />
+//       {/* Center Reticle */}
+//       <div 
+//         style={{
+//           position: 'absolute', 
+//           top: '50%', 
+//           left: '50%', 
+//           transform: 'translate(-50%, -50%)',
+//           zIndex: 2, 
+//           width: '30px', 
+//           height: '30px', 
+//           border: '3px solid white', 
+//           borderRadius: '50%',
+//           background: 'rgba(255,255,255,0.1)'
+//         }}
+//       />
+//       {/* Instructions and (Initial) Capture Button */}
+//       <div 
+//         style={{ 
+//           position: 'absolute', 
+//           top: '10px', 
+//           left: '10px', 
+//           zIndex: 1, 
+//           color: 'white', 
+//           background: 'rgba(0,0,0,0.5)', 
+//           padding: '10px',
+//           borderRadius: '5px',
+//           maxWidth: '300px'
+//         }}
+//       >
+//         {captureCount < maxCaptures && !firstCaptureDoneRef.current && (
+//           <button
+//             onClick={captureImage}
+//             style={{
+//               padding: '10px 20px',
+//               background: '#ffffffee',
+//               border: '1px solid #ccc',
+//               cursor: 'pointer',
+//               marginBottom: '10px',
+//               borderRadius: '5px',
+//               fontWeight: 'bold'
+//             }}
+//           >
+//             Capture
+//           </button>
+//         )}
+//         <div>{instructions}</div>
+//         <div style={{ marginTop: '10px' }}>
+//           Captures: {captureCount} / {maxCaptures}
+//         </div>
+//       </div>
+//       {/* Flash Effect for Visual Feedback */}
+//       {showFlash && (
+//         <div
+//           style={{
+//             position: 'absolute',
+//             top: 0,
+//             left: 0,
+//             width: '100%',
+//             height: '100%',
+//             backgroundColor: 'rgba(255,255,255,0.8)',
+//             zIndex: 3,
+//             pointerEvents: 'none'
+//           }}
+//         />
+//       )}
+//     </div>
+//   );
+// };
+
+// /** Helper Functions **/
+
+// // Function to create the red marker
+// function createMarker() {
+//   const markerGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+//   const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+//   return new THREE.Mesh(markerGeometry, markerMaterial);
+// }
+
+// // Function to create a captured image plane
+// function createCapturedPlane(texture, width, height) {
+//   const geometry = new THREE.PlaneGeometry(width, height);
+//   const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide }); // Changed to FrontSide
+//   return new THREE.Mesh(geometry, material);
+// }
+
+// // Function to stop the video stream
+// function stopVideoStream(video) {
+//   if (video.srcObject) {
+//     const tracks = video.srcObject.getTracks();
+//     tracks.forEach(track => track.stop());
+//   }
+// }
+
+// // Function to check if the marker is centered in the view
+// function isMarkerCentered(camera, marker) {
+//   const vector = new THREE.Vector3().copy(marker.position).project(camera);
+//   const dx = vector.x;
+//   const dy = vector.y;
+//   const threshold = 0.05;
+//   return Math.abs(dx) < threshold && Math.abs(dy) < threshold;
+// }
+
+// export default PanoramaViewer;
 
 
 
