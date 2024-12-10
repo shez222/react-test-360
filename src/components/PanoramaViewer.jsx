@@ -14,9 +14,10 @@ const SceneView = () => {
   const sphereRadius = 5;
   const offsetFromSurface = 0.01;
 
-  const [instructions, setInstructions] = useState("Move your device to align the dot with the center reticle.");
+  // Track capture process
+  const [instructions, setInstructions] = useState("Press 'Capture' for the first image.");
+  const [firstCaptureDone, setFirstCaptureDone] = useState(false);
 
-  // Keep track of captures
   const angleInfoRef = useRef({
     angleIncrement: 0,
     angleRef: { currentAngle: 0 },
@@ -28,7 +29,7 @@ const SceneView = () => {
     scene.background = new THREE.Color(0x202020);
     sceneRef.current = scene;
 
-    // Setup camera at center
+    // Setup camera
     const camera = new THREE.PerspectiveCamera(
       75,
       mountRef.current.clientWidth / mountRef.current.clientHeight,
@@ -43,7 +44,7 @@ const SceneView = () => {
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Device orientation controls (user physically moves device)
+    // Device orientation controls
     const controls = new DeviceOrientationControls(camera);
     controls.connect();
 
@@ -108,6 +109,8 @@ const SceneView = () => {
     const marker = new THREE.Mesh(markerGeometry, markerMaterial);
     scene.add(marker);
     markerRef.current = marker;
+
+    // Initially, marker at same angle as video plane
     placeObjectOnSphere(marker, angleRef.currentAngle);
 
     angleInfoRef.current = {
@@ -131,22 +134,19 @@ const SceneView = () => {
 
       renderer.render(scene, camera);
 
-      if (!capturing) {
-        // Check if marker is near center
-        // Project marker position into screen space
+      if (firstCaptureDone && !capturing) {
+        // After first capture, auto-capture when aligned
         const vector = new THREE.Vector3();
         vector.copy(marker.position);
         vector.project(camera);
 
-        // vector.x and vector.y now range from -1 to 1, where (0,0) is center of screen
         const dx = vector.x;
         const dy = vector.y;
 
-        // If close enough to center, automatically capture
-        const threshold = 0.05; // adjust for sensitivity
+        const threshold = 0.05; 
         if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) {
           capturing = true;
-          captureImage().then(() => {
+          autoCaptureImage().then(() => {
             capturing = false;
           });
         }
@@ -165,9 +165,47 @@ const SceneView = () => {
         tracks.forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [firstCaptureDone]);
 
-  const captureImage = async () => {
+  const captureImage = () => {
+    // First capture triggered by button
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const videoPlane = videoPlaneRef.current;
+    const marker = markerRef.current;
+    if (!renderer || !scene || !videoPlane || !marker) return;
+
+    const { angleIncrement, angleRef, placeObjectOnSphere } = angleInfoRef.current;
+    const dataURL = renderer.domElement.toDataURL('image/png');
+
+    const img = new Image();
+    img.onload = () => {
+      const capturedTexture = new THREE.Texture(img);
+      capturedTexture.needsUpdate = true;
+
+      const planeWidth = 2;
+      const planeHeight = 3; 
+      const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+      const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
+      const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
+      scene.add(capturedPlane);
+
+      // Place the captured plane at the current angle
+      placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
+
+      // Move to next angle
+      angleRef.currentAngle += angleIncrement;
+      placeObjectOnSphere(videoPlane, angleRef.currentAngle);
+      placeObjectOnSphere(marker, angleRef.currentAngle);
+
+      setInstructions("Move your device to align red dot with center. Once aligned, it will auto-capture.");
+      setFirstCaptureDone(true);
+    };
+    img.src = dataURL;
+  };
+
+  const autoCaptureImage = async () => {
+    // Automatic capture after alignment
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
     const videoPlane = videoPlaneRef.current;
@@ -190,16 +228,13 @@ const SceneView = () => {
         const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
         scene.add(capturedPlane);
 
-        // Place the captured plane at the current angle
         placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
 
-        // Move to next angle
         angleRef.currentAngle += angleIncrement;
         placeObjectOnSphere(videoPlane, angleRef.currentAngle);
         placeObjectOnSphere(marker, angleRef.currentAngle);
 
-        setInstructions("Move device to align with next dot.");
-
+        setInstructions("Next dot placed. Move device to align and auto-capture again.");
         resolve();
       };
       img.src = dataURL;
@@ -233,6 +268,7 @@ const SceneView = () => {
           borderRadius: '50%'
         }}
       />
+      {/* Instructions and Capture Button (for first image) */}
       <div 
         style={{ 
           position: 'absolute', 
@@ -244,6 +280,21 @@ const SceneView = () => {
           padding: '5px' 
         }}
       >
+        {!firstCaptureDone && (
+          <button
+            onClick={captureImage}
+            style={{
+              padding: '10px',
+              background: 'white',
+              border: '1px solid #ccc',
+              cursor: 'pointer',
+              marginBottom: '10px',
+              display: 'block'
+            }}
+          >
+            Capture
+          </button>
+        )}
         {instructions}
       </div>
     </div>
