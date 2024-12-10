@@ -4,9 +4,9 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
 const PhotoSphereCamera = () => {
   const mountRef = useRef(null);
-  const sceneRef = useRef(new THREE.Scene()); // Use ref to persist the scene across renders
-  const cameraRef = useRef(new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)); // Camera ref
-  const rendererRef = useRef(new THREE.WebGLRenderer({ antialias: true })); // Renderer ref
+  const sceneRef = useRef(new THREE.Scene());
+  const cameraRef = useRef(new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000));
+  const rendererRef = useRef(new THREE.WebGLRenderer({ antialias: true }));
   const [capturedImages, setCapturedImages] = useState([]);
   const [capturing, setCapturing] = useState(false);
 
@@ -16,7 +16,6 @@ const PhotoSphereCamera = () => {
     const camera = cameraRef.current;
     const renderer = rendererRef.current;
 
-    // Set up renderer
     renderer.setSize(window.innerWidth, window.innerHeight);
     mount.appendChild(renderer.domElement);
 
@@ -53,14 +52,19 @@ const PhotoSphereCamera = () => {
       mount.removeChild(renderer.domElement);
       window.removeEventListener('resize', onWindowResize);
     };
-  }, []); // Empty dependency array, runs once after initial mount
+  }, []);
 
   const captureImageFromCamera = () => {
     if (capturing) return;  // Prevent multiple captures at the same time
     setCapturing(true);
 
+    // Use back camera (environment mode)
     navigator.mediaDevices
-      .getUserMedia({ video: true })
+      .getUserMedia({
+        video: {
+          facingMode: "environment" // Use the back camera
+        }
+      })
       .then((stream) => {
         const video = document.createElement('video');
         video.srcObject = stream;
@@ -117,7 +121,7 @@ const PhotoSphereCamera = () => {
       plane.position.set(x, y, z);
       scene.add(plane);
     }
-  }, [capturedImages]); // Only run this effect when capturedImages changes
+  }, [capturedImages]);
 
   return (
     <div
