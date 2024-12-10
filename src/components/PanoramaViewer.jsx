@@ -1,9 +1,11 @@
+// src/components/PanoramaViewer.jsx
+
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { DeviceOrientationControls } from 'three-stdlib';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { DeviceOrientationControls } from 'three/examples/jsm/controls/DeviceOrientationControls';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
-const SceneView = () => {
+const PanoramaViewer = () => {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const cameraRef = useRef(null);
@@ -34,15 +36,14 @@ const SceneView = () => {
     scene.background = new THREE.Color(0x000000);
     sceneRef.current = scene;
 
-    // Setup camera outside the sphere so we can view the inner surface
+    // Setup camera at the center of the sphere
     const camera = new THREE.PerspectiveCamera(
       75,
       mountRef.current.clientWidth / mountRef.current.clientHeight,
       0.1,
       1000
     );
-    // Position camera outside the sphere
-    camera.position.set(0, 0, sphereRadius * 2);
+    camera.position.set(0, 0, 0);
     cameraRef.current = camera;
 
     // Setup renderer
@@ -68,19 +69,15 @@ const SceneView = () => {
       controls.enableZoom = true;
     }
 
-    // Add visual references (optional, can be removed for a cleaner view)
-    // addVisualReferences(scene); // Uncomment to add grid helpers and axes
-
-    // Add a semi-transparent sphere as a reference
-    const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(sphereRadius, 64, 64),
-      new THREE.MeshBasicMaterial({
-        color: 0x44aa88,
-        transparent: true,
-        opacity: 0.3,
-        side: THREE.DoubleSide
-      })
-    );
+    // Add a semi-transparent sphere as a reference (visible from inside)
+    const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
+    const sphereMaterial = new THREE.MeshBasicMaterial({
+      color: 0x44aa88,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.BackSide // Ensures visibility from inside
+    });
+    const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
     scene.add(sphere);
 
     // Setup video feed from the back camera
@@ -90,7 +87,7 @@ const SceneView = () => {
     video.muted = true;
 
     navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: { exact: 'environment' } }, audio: false })
+      .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
       .then((stream) => {
         video.srcObject = stream;
         video.play();
@@ -160,7 +157,7 @@ const SceneView = () => {
       renderer.render(scene, camera);
 
       // After the first capture, auto-capture when aligned
-      if (firstCaptureDone && !capturing && isMarkerCentered(camera, marker) && captureCount < maxCaptures) {
+      if (firstCaptureDone && !capturing && captureCount < maxCaptures && isMarkerCentered(camera, marker)) {
         capturing = true;
         autoCaptureImage().then(() => {
           capturing = false;
@@ -176,7 +173,11 @@ const SceneView = () => {
         mountRef.current.removeChild(renderer.domElement);
       }
       renderer.dispose();
-      controls.dispose();
+      if (controls instanceof DeviceOrientationControls) {
+        controls.disconnect();
+      } else if (controls instanceof OrbitControls) {
+        controls.dispose();
+      }
       stopVideoStream(video);
     };
   }, [firstCaptureDone, captureCount]);
@@ -214,7 +215,7 @@ const SceneView = () => {
 
         scene.add(capturedPlane);
         placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
-        console.log(`Captured image placed at angle: ${angleRef.currentAngle.toFixed(2)} degrees`);
+        console.log(`Captured image placed at angle: ${(angleRef.currentAngle * (180 / Math.PI)).toFixed(2)}°`);
 
         // Move to next angle
         angleRef.currentAngle += angleIncrement;
@@ -223,7 +224,7 @@ const SceneView = () => {
 
         setCaptureCount((prev) => prev + 1);
 
-        if (captureCount + 1 >= maxCaptures) {
+        if (angleRef.currentAngle >= Math.PI * 2) {
           setInstructions("360° capture completed. Explore your panorama!");
         } else if (!isAuto) {
           setInstructions("Rotate the device to align the red dot with the center. Once aligned, image capture will happen automatically.");
@@ -307,25 +308,6 @@ const SceneView = () => {
 
 /** Helper Functions **/
 
-function addVisualReferences(scene) {
-  const size = 10;
-  const divisions = 10;
-
-  const gridXY = new THREE.GridHelper(size, divisions, 0xff0000, 0x444444);
-  scene.add(gridXY);
-
-  const gridYZ = new THREE.GridHelper(size, divisions, 0x00ff00, 0x444444);
-  gridYZ.rotation.z = Math.PI / 2;
-  scene.add(gridYZ);
-
-  const gridZX = new THREE.GridHelper(size, divisions, 0x0000ff, 0x444444);
-  gridZX.rotation.x = Math.PI / 2;
-  scene.add(gridZX);
-
-  const axesHelper = new THREE.AxesHelper(5);
-  scene.add(axesHelper);
-}
-
 function createMarker() {
   const markerGeometry = new THREE.SphereGeometry(0.1, 16, 16);
   const markerMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
@@ -353,7 +335,7 @@ function isMarkerCentered(camera, marker) {
   return Math.abs(dx) < threshold && Math.abs(dy) < threshold;
 }
 
-export default SceneView;
+export default PanoramaViewer;
 
 
 
