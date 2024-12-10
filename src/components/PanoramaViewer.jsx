@@ -53,6 +53,9 @@ const PanoramaViewer = () => {
   // **Capture Queue Initialization**
   const captureQueueRef = useRef([]);
 
+  // State to indicate when the capture queue is ready
+  const [queueReady, setQueueReady] = useState(false);
+
   // Initialize the capture queue
   useEffect(() => {
     const queue = [];
@@ -64,6 +67,7 @@ const PanoramaViewer = () => {
       }
     });
     captureQueueRef.current = queue;
+    setQueueReady(true); // Indicate that the queue is ready
   }, []);
 
   // Refs for mutable variables
@@ -377,7 +381,7 @@ const PanoramaViewer = () => {
           maxWidth: '300px'
         }}
       >
-        {captureCount < maxCaptures && captureQueueRef.current.length > 0 && !firstCaptureDoneRef.current && (
+        {queueReady && captureCount < maxCaptures && captureQueueRef.current.length > 0 && !firstCaptureDoneRef.current && (
           <button
             onClick={captureImage}
             style={{
