@@ -20,14 +20,16 @@ const PanoramaViewer = () => {
   const sphereRadius = 5;
   const offsetFromSurface = 0.01;
 
-  // State variables
+  // Refs for mutable variables
+  const captureCountRef = useRef(0);
+  const currentAngleRef = useRef(0);
+  const capturingRef = useRef(false);
+  const firstCaptureDoneRef = useRef(false);
+
+  // State variables for UI
   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
-  const [firstCaptureDone, setFirstCaptureDone] = useState(false);
   const [captureCount, setCaptureCount] = useState(0);
   const maxCaptures = 36; // 36 captures for 360° (every 10 degrees)
-  const angleIncrement = (Math.PI * 2) / maxCaptures; // ~0.1745 radians (~10 degrees)
-  const [currentAngle, setCurrentAngle] = useState(0);
-  const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
     // Initialize Three.js Scene
@@ -111,8 +113,8 @@ const PanoramaViewer = () => {
     videoTextureRef.current = videoTexture;
 
     // Dimensions for the Video Plane
-    const planeWidth = 2; // Adjusted to 2 as per your request
-    const planeHeight = 3;
+    const planeWidth = 1; // Reduced to 1 to prevent overlapping
+    const planeHeight = 1.5; // Adjusted proportionally
 
     // Create the Video Plane and Add to Scene
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
@@ -131,13 +133,14 @@ const PanoramaViewer = () => {
     };
 
     // Initial Placement
-    placeObjectOnSphere(videoPlane, currentAngle);
+    placeObjectOnSphere(videoPlane, currentAngleRef.current);
+    placeObjectOnSphere(videoPlaneRef.current, currentAngleRef.current);
 
     // Add a Marker (Red Dot) to Guide the User for Next Captures
     const marker = createMarker();
     scene.add(marker);
     markerRef.current = marker;
-    placeObjectOnSphere(marker, currentAngle);
+    placeObjectOnSphere(marker, currentAngleRef.current);
 
     // Create a Hidden Canvas for Capturing Video Frames
     const hiddenCanvas = document.createElement('canvas');
@@ -161,14 +164,14 @@ const PanoramaViewer = () => {
 
       // After the First Capture, Auto-Capture When Aligned
       if (
-        firstCaptureDone &&
-        !capturing &&
-        captureCount < maxCaptures &&
+        firstCaptureDoneRef.current &&
+        !capturingRef.current &&
+        captureCountRef.current < maxCaptures &&
         isMarkerCentered(camera, marker)
       ) {
-        setCapturing(true);
+        capturingRef.current = true;
         autoCaptureImage().then(() => {
-          setCapturing(false);
+          capturingRef.current = false;
         });
       }
     };
@@ -188,7 +191,7 @@ const PanoramaViewer = () => {
       }
       stopVideoStream(video);
     };
-  }, [firstCaptureDone, captureCount, currentAngle, capturing]);
+  }, []); // Empty dependency array ensures this runs once
 
   // Configure OrbitControls (Helper Function)
   const configureOrbitControls = (controls) => {
@@ -200,16 +203,19 @@ const PanoramaViewer = () => {
     controls.enableZoom = true;
   };
 
-  // First Manual Capture via Button
+  // Capture Image Function
   const captureImage = () => {
-    performCapture(false);
+    if (!capturingRef.current && captureCountRef.current < maxCaptures) {
+      performCapture(false);
+    }
   };
 
-  // Subsequent Captures Happen Automatically Once Aligned
+  // Auto Capture Function
   const autoCaptureImage = async () => {
     return performCapture(true);
   };
 
+  // Perform Capture Function
   const performCapture = (isAuto) => {
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
@@ -236,33 +242,36 @@ const PanoramaViewer = () => {
         capturedTexture.needsUpdate = true;
 
         // Create a plane for the captured image with FrontSide
-        const capturedPlane = createCapturedPlane(capturedTexture, 2, 3); // planeWidth set to 2
+        const capturedPlane = createCapturedPlane(capturedTexture, 1, 1.5); // planeWidth set to 1
         scene.add(capturedPlane);
 
         // Place the captured plane on the sphere at the current angle
-        placeObjectOnSphere(capturedPlane, currentAngle);
+        placeObjectOnSphere(capturedPlane, currentAngleRef.current);
 
-        console.log(`Captured image placed at angle: ${(currentAngle * (180 / Math.PI)).toFixed(2)}°`);
+        console.log(`Captured image placed at angle: ${(currentAngleRef.current * (180 / Math.PI)).toFixed(2)}°`);
 
         // Move to Next Angle
-        let newAngle = currentAngle + angleIncrement;
+        let newAngle = currentAngleRef.current + angleIncrement;
         if (newAngle >= Math.PI * 2) {
           newAngle -= Math.PI * 2; // Wrap around
         }
-        setCurrentAngle(newAngle);
-        placeObjectOnSphere(videoPlaneRef.current, newAngle);
-        placeObjectOnSphere(marker, newAngle);
+        currentAngleRef.current = newAngle;
+        captureCountRef.current += 1;
+        setCaptureCount(captureCountRef.current); // Update state for UI
 
-        setCaptureCount((prev) => prev + 1);
-
-        if (captureCount + 1 >= maxCaptures) {
+        // Update Instructions
+        if (captureCountRef.current >= maxCaptures) {
           setInstructions("360° capture completed. Explore your panorama!");
         } else if (!isAuto) {
           setInstructions("Rotate the device to align the red dot with the center. Once aligned, image capture will happen automatically.");
-          setFirstCaptureDone(true);
+          firstCaptureDoneRef.current = true;
         } else {
-          setInstructions(`Image ${captureCount + 1} captured. Rotate to align and auto-capture again.`);
+          setInstructions(`Image ${captureCountRef.current} captured. Rotate to align and auto-capture again.`);
         }
+
+        // Move Video Plane and Marker to New Angle
+        placeObjectOnSphere(videoPlaneRef.current, currentAngleRef.current);
+        placeObjectOnSphere(marker, currentAngleRef.current);
 
         resolve();
       };
@@ -323,7 +332,7 @@ const PanoramaViewer = () => {
           maxWidth: '300px'
         }}
       >
-        {!firstCaptureDone && captureCount < maxCaptures && (
+        {!firstCaptureDoneRef.current && captureCount < maxCaptures && (
           <button
             onClick={captureImage}
             style={{
@@ -360,7 +369,7 @@ function createMarker() {
 // Function to create a captured image plane
 function createCapturedPlane(texture, width, height) {
   const geometry = new THREE.PlaneGeometry(width, height);
-  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide });
+  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide }); // Changed to FrontSide
   return new THREE.Mesh(geometry, material);
 }
 
