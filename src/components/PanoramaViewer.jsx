@@ -14,7 +14,6 @@ const SceneView = () => {
   const sphereRadius = 5;
   const offsetFromSurface = 0.01;
 
-  // Track capture process
   const [instructions, setInstructions] = useState("Press 'Capture' for the first image.");
   const [firstCaptureDone, setFirstCaptureDone] = useState(false);
 
@@ -29,7 +28,7 @@ const SceneView = () => {
     scene.background = new THREE.Color(0x202020);
     sceneRef.current = scene;
 
-    // Setup camera
+    // Setup camera at center
     const camera = new THREE.PerspectiveCamera(
       75,
       mountRef.current.clientWidth / mountRef.current.clientHeight,
@@ -48,11 +47,25 @@ const SceneView = () => {
     const controls = new DeviceOrientationControls(camera);
     controls.connect();
 
-    // Grid and sphere
+    // Add multiple grid helpers and an axes helper to confirm rotation visually
     const size = 10;
     const divisions = 10;
-    scene.add(new THREE.GridHelper(size, divisions));
 
+    const gridXY = new THREE.GridHelper(size, divisions, 0xff0000, 0x444444);
+    scene.add(gridXY);
+
+    const gridYZ = new THREE.GridHelper(size, divisions, 0x00ff00, 0x444444);
+    gridYZ.rotation.z = Math.PI / 2;
+    scene.add(gridYZ);
+
+    const gridZX = new THREE.GridHelper(size, divisions, 0x0000ff, 0x444444);
+    gridZX.rotation.x = Math.PI / 2;
+    scene.add(gridZX);
+
+    const axesHelper = new THREE.AxesHelper(5);
+    scene.add(axesHelper);
+
+    // Transparent sphere around camera
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(sphereRadius, 64, 64),
       new THREE.MeshBasicMaterial({
@@ -131,11 +144,10 @@ const SceneView = () => {
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
-
       renderer.render(scene, camera);
 
+      // After first capture, auto-capture when aligned
       if (firstCaptureDone && !capturing) {
-        // After first capture, auto-capture when aligned
         const vector = new THREE.Vector3();
         vector.copy(marker.position);
         vector.project(camera);
@@ -262,13 +274,14 @@ const SceneView = () => {
           left: '50%', 
           transform: 'translate(-50%, -50%)',
           zIndex: 2, 
-          width: '20px', 
-          height: '20px', 
-          border: '2px solid white', 
-          borderRadius: '50%'
+          width: '30px', 
+          height: '30px', 
+          border: '3px solid white', 
+          borderRadius: '50%',
+          background: 'rgba(255,255,255,0.1)'
         }}
       />
-      {/* Instructions and Capture Button (for first image) */}
+      {/* Instructions and (initial) Capture Button */}
       <div 
         style={{ 
           position: 'absolute', 
