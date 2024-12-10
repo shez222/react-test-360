@@ -20,16 +20,22 @@ const PanoramaViewer = () => {
   const sphereRadius = 5;
   const offsetFromSurface = 0.01;
 
+  // Capture configuration
+  const elevationLevels = [-60, -30, 0, 30, 60]; // Degrees
+  const maxCapturesPerElevation = 36; // 10-degree increments
+  const angleIncrement = 10; // Degrees
+
   // Refs for mutable variables
   const captureCountRef = useRef(0);
-  const currentAngleRef = useRef(0);
+  const currentAzimuthRef = useRef(0); // Horizontal angle in degrees
+  const currentElevationIndexRef = useRef(0); // Index for elevation levels
   const capturingRef = useRef(false);
   const firstCaptureDoneRef = useRef(false);
 
   // State variables for UI
   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
   const [captureCount, setCaptureCount] = useState(0);
-  const maxCaptures = 36; // 36 captures for 360° (every 10 degrees)
+  const maxCaptures = elevationLevels.length * maxCapturesPerElevation; // e.g., 5 x 36 = 180
 
   useEffect(() => {
     // Initialize Three.js Scene
@@ -124,23 +130,28 @@ const PanoramaViewer = () => {
     videoPlaneRef.current = videoPlane;
 
     // Helper Function to Place Objects on the Inner Surface of the Sphere
-    const placeObjectOnSphere = (obj, angle) => {
+    const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
       const r = sphereRadius - offsetFromSurface;
-      const x = r * Math.sin(angle);
-      const z = r * Math.cos(angle);
-      obj.position.set(x, 0, -z);
-      obj.rotation.set(0, Math.PI - angle, 0);
+      const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
+      const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
+
+      const x = r * Math.cos(elevationRad) * Math.sin(azimuthRad);
+      const y = r * Math.sin(elevationRad);
+      const z = r * Math.cos(elevationRad) * Math.cos(azimuthRad);
+
+      obj.position.set(x, y, -z); // Negative z to face inward
+      obj.lookAt(0, 0, 0); // Ensure the plane faces the center
     };
 
-    // Initial Placement
-    placeObjectOnSphere(videoPlane, currentAngleRef.current);
-    placeObjectOnSphere(videoPlaneRef.current, currentAngleRef.current);
+    // Initial Placement with first elevation
+    const initialElevation = elevationLevels[currentElevationIndexRef.current];
+    placeObjectOnSphere(videoPlane, currentAzimuthRef.current, initialElevation);
 
     // Add a Marker (Red Dot) to Guide the User for Next Captures
     const marker = createMarker();
     scene.add(marker);
     markerRef.current = marker;
-    placeObjectOnSphere(marker, currentAngleRef.current);
+    placeObjectOnSphere(marker, currentAzimuthRef.current, initialElevation);
 
     // Create a Hidden Canvas for Capturing Video Frames
     const hiddenCanvas = document.createElement('canvas');
@@ -159,7 +170,7 @@ const PanoramaViewer = () => {
     // Animation Loop
     const animate = () => {
       requestAnimationFrame(animate);
-      controls.update();
+      if (controls) controls.update();
       renderer.render(scene, camera);
 
       // After the First Capture, Auto-Capture When Aligned
@@ -243,35 +254,47 @@ const PanoramaViewer = () => {
 
         // Create a plane for the captured image with FrontSide
         const capturedPlane = createCapturedPlane(capturedTexture, 1, 1.5); // planeWidth set to 1
+        capturedPlane.userData.isCaptured = true; // Tag for potential removal/reset
         scene.add(capturedPlane);
 
-        // Place the captured plane on the sphere at the current angle
-        placeObjectOnSphere(capturedPlane, currentAngleRef.current);
+        // Determine current elevation
+        const currentElevation = elevationLevels[currentElevationIndexRef.current];
 
-        console.log(`Captured image placed at angle: ${(currentAngleRef.current * (180 / Math.PI)).toFixed(2)}°`);
+        // Place the captured plane on the sphere at the current azimuth and elevation
+        placeObjectOnSphere(capturedPlane, currentAzimuthRef.current, currentElevation);
 
-        // Move to Next Angle
-        let newAngle = currentAngleRef.current + angleIncrement;
-        if (newAngle >= Math.PI * 2) {
-          newAngle -= Math.PI * 2; // Wrap around
-        }
-        currentAngleRef.current = newAngle;
+        console.log(`Captured image placed at Azimuth: ${currentAzimuthRef.current}°, Elevation: ${currentElevation}°`);
+
+        // Increment capture count
         captureCountRef.current += 1;
         setCaptureCount(captureCountRef.current); // Update state for UI
 
+        // Check if all captures for current elevation are done
+        if (currentAzimuthRef.current >= 360 - angleIncrement) {
+          currentAzimuthRef.current = 0; // Reset azimuth for next elevation
+          currentElevationIndexRef.current += 1; // Move to next elevation
+
+          if (currentElevationIndexRef.current >= elevationLevels.length) {
+            setInstructions("360° capture completed. Explore your panorama!");
+            return resolve();
+          }
+        } else {
+          currentAzimuthRef.current += angleIncrement; // Move to next azimuth
+        }
+
         // Update Instructions
-        if (captureCountRef.current >= maxCaptures) {
-          setInstructions("360° capture completed. Explore your panorama!");
-        } else if (!isAuto) {
+        if (!isAuto) {
           setInstructions("Rotate the device to align the red dot with the center. Once aligned, image capture will happen automatically.");
           firstCaptureDoneRef.current = true;
         } else {
-          setInstructions(`Image ${captureCountRef.current} captured. Rotate to align and auto-capture again.`);
+          const currentCaptureNumber = captureCountRef.current;
+          setInstructions(`Image ${currentCaptureNumber} captured. Rotate to align and auto-capture again.`);
         }
 
-        // Move Video Plane and Marker to New Angle
-        placeObjectOnSphere(videoPlaneRef.current, currentAngleRef.current);
-        placeObjectOnSphere(marker, currentAngleRef.current);
+        // Move Video Plane and Marker to New Azimuth and Elevation
+        const newElevation = elevationLevels[currentElevationIndexRef.current] || elevationLevels[elevationLevels.length - 1];
+        placeObjectOnSphere(videoPlaneRef.current, currentAzimuthRef.current, newElevation);
+        placeObjectOnSphere(marker, currentAzimuthRef.current, newElevation);
 
         resolve();
       };
@@ -280,14 +303,19 @@ const PanoramaViewer = () => {
   };
 
   // Helper Function to Place Objects on the Sphere
-  const placeObjectOnSphere = (obj, angle) => {
+  const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
     const sphereRadius = 5;
     const offsetFromSurface = 0.01;
     const r = sphereRadius - offsetFromSurface;
-    const x = r * Math.sin(angle);
-    const z = r * Math.cos(angle);
-    obj.position.set(x, 0, -z);
-    obj.rotation.set(0, Math.PI - angle, 0);
+    const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
+    const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
+
+    const x = r * Math.cos(elevationRad) * Math.sin(azimuthRad);
+    const y = r * Math.sin(elevationRad);
+    const z = r * Math.cos(elevationRad) * Math.cos(azimuthRad);
+
+    obj.position.set(x, y, -z); // Negative z to face inward
+    obj.lookAt(0, 0, 0); // Ensure the plane faces the center
   };
 
   return (
@@ -332,7 +360,7 @@ const PanoramaViewer = () => {
           maxWidth: '300px'
         }}
       >
-        {!firstCaptureDoneRef.current && captureCount < maxCaptures && (
+        {captureCount < maxCaptures && !firstCaptureDoneRef.current && (
           <button
             onClick={captureImage}
             style={{
