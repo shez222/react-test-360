@@ -21,15 +21,13 @@ const PanoramaViewer = () => {
   const offsetFromSurface = 0.01;
 
   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
-  const [firstCaptureDone, setFirstCaptureDone] = useState(false);
-  const [captureCount, setCaptureCount] = useState(0);
   const maxCaptures = 36; // 36 captures for 360° (every 10 degrees)
 
-  const angleInfoRef = useRef({
-    angleIncrement: (Math.PI * 2) / maxCaptures, // 0.1745 radians (~10 degrees)
-    angleRef: { currentAngle: 0 },
-    placeObjectOnSphere: () => {}
-  });
+  // Using refs for mutable variables to avoid stale closures
+  const captureCountRef = useRef(0);
+  const angleRef = useRef(0);
+  const capturingRef = useRef(false);
+  const firstCaptureDoneRef = useRef(false);
 
   useEffect(() => {
     // Create the scene
@@ -55,12 +53,32 @@ const PanoramaViewer = () => {
 
     // Choose controls based on device
     let controls;
-    if (window.DeviceOrientationEvent) {
-      // Use DeviceOrientationControls for mobile devices
+    if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      // For iOS 13+ devices, permission is required
+      DeviceOrientationEvent.requestPermission()
+        .then(response => {
+          if (response === 'granted') {
+            controls = new DeviceOrientationControls(camera);
+            controls.connect();
+          } else {
+            // Fallback to OrbitControls if permission denied
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 1;
+            controls.maxDistance = 100;
+            controls.enablePan = false;
+            controls.enableZoom = true;
+            setInstructions("Device orientation permission denied. Use mouse to navigate.");
+          }
+        })
+        .catch(console.error);
+    } else if (window.DeviceOrientationEvent) {
+      // Non-iOS devices
       controls = new DeviceOrientationControls(camera);
       controls.connect();
     } else {
-      // Use OrbitControls for desktop
+      // Desktop fallback
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
@@ -68,6 +86,7 @@ const PanoramaViewer = () => {
       controls.maxDistance = 100;
       controls.enablePan = false;
       controls.enableZoom = true;
+      setInstructions("Device orientation not supported. Use mouse to navigate.");
     }
 
     // Add a semi-transparent sphere as a reference (visible from inside)
@@ -106,7 +125,7 @@ const PanoramaViewer = () => {
     // Dimensions for the video and captured planes
     const planeWidth = 1; // Adjusted to match arc length for 10° increments
     const planeHeight = 3;
-    const angleIncrement = angleInfoRef.current.angleIncrement; // 0.1745 radians (~10 degrees)
+    const angleIncrement = (Math.PI * 2) / maxCaptures; // 0.1745 radians (~10 degrees)
 
     // Create the video plane and add to scene
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
@@ -124,8 +143,7 @@ const PanoramaViewer = () => {
       obj.rotation.set(0, Math.PI - angle, 0);
     };
 
-    // Initial angle and placement
-    const angleRef = { currentAngle: 0 };
+    // Initial placement
     placeObjectOnSphere(videoPlane, angleRef.currentAngle);
 
     // Add a marker (red dot) to guide the user for next captures
@@ -143,8 +161,8 @@ const PanoramaViewer = () => {
 
     // Create a hidden canvas for capturing video frames
     const hiddenCanvas = document.createElement('canvas');
-    hiddenCanvas.width = video.videoWidth || 640;
-    hiddenCanvas.height = video.videoHeight || 480;
+    hiddenCanvas.width = 640; // Standard width
+    hiddenCanvas.height = 480; // Standard height
     hiddenCanvasRef.current = hiddenCanvas;
 
     // Handle window resizing
@@ -155,19 +173,22 @@ const PanoramaViewer = () => {
     };
     window.addEventListener('resize', onWindowResize, false);
 
-    let capturing = false;
-
     // Animation loop
     const animate = () => {
       requestAnimationFrame(animate);
-      controls.update();
+      if (controls) controls.update();
       renderer.render(scene, camera);
 
-      // After the first capture, auto-capture when aligned
-      if (firstCaptureDone && !capturing && captureCount < maxCaptures && isMarkerCentered(camera, marker)) {
-        capturing = true;
+      // Auto-capture logic
+      if (
+        firstCaptureDoneRef.current &&
+        !capturingRef.current &&
+        captureCountRef.current < maxCaptures &&
+        isMarkerCentered(camera, marker)
+      ) {
+        capturingRef.current = true;
         autoCaptureImage().then(() => {
-          capturing = false;
+          capturingRef.current = false;
         });
       }
     };
@@ -187,11 +208,13 @@ const PanoramaViewer = () => {
       }
       stopVideoStream(video);
     };
-  }, [firstCaptureDone, captureCount]);
+  }, [maxCaptures]);
 
   // First manual capture via button
   const captureImage = () => {
-    performCapture(false);
+    if (!capturingRef.current && captureCountRef.current < maxCaptures) {
+      performCapture(false);
+    }
   };
 
   // Subsequent captures happen automatically once aligned
@@ -213,8 +236,6 @@ const PanoramaViewer = () => {
 
     // Draw the current video frame onto the hidden canvas
     const ctx = hiddenCanvas.getContext('2d');
-    hiddenCanvas.width = video.videoWidth || 640;
-    hiddenCanvas.height = video.videoHeight || 480;
     ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
     // Get the data URL from the hidden canvas
@@ -229,6 +250,7 @@ const PanoramaViewer = () => {
         const capturedPlane = createCapturedPlane(capturedTexture, 1, 3); // planeWidth = 1, planeHeight = 3
         scene.add(capturedPlane);
         placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
+
         console.log(`Captured image placed at angle: ${(angleRef.currentAngle * (180 / Math.PI)).toFixed(2)}°`);
 
         // Move to next angle
@@ -239,15 +261,16 @@ const PanoramaViewer = () => {
         placeObjectOnSphere(videoPlane, angleRef.currentAngle);
         placeObjectOnSphere(marker, angleRef.currentAngle);
 
-        setCaptureCount((prev) => prev + 1);
+        // Update capture count
+        captureCountRef.current += 1;
 
-        if (captureCount + 1 >= maxCaptures) {
+        if (captureCountRef.current >= maxCaptures) {
           setInstructions("360° capture completed. Explore your panorama!");
         } else if (!isAuto) {
           setInstructions("Rotate the device to align the red dot with the center. Once aligned, image capture will happen automatically.");
-          setFirstCaptureDone(true);
+          firstCaptureDoneRef.current = true;
         } else {
-          setInstructions(`Image ${captureCount + 1} captured. Rotate to align and auto-capture again.`);
+          setInstructions(`Image ${captureCountRef.current} captured. Rotate to align and auto-capture again.`);
         }
 
         resolve();
@@ -284,7 +307,7 @@ const PanoramaViewer = () => {
           background: 'rgba(255,255,255,0.1)'
         }}
       />
-      {/* Instructions and (initial) Capture Button */}
+      {/* Instructions and Capture Button */}
       <div 
         style={{ 
           position: 'absolute', 
@@ -298,7 +321,7 @@ const PanoramaViewer = () => {
           maxWidth: '300px'
         }}
       >
-        {!firstCaptureDone && captureCount < maxCaptures && (
+        {!firstCaptureDoneRef.current && captureCountRef.current < maxCaptures && (
           <button
             onClick={captureImage}
             style={{
@@ -316,7 +339,7 @@ const PanoramaViewer = () => {
         )}
         <div>{instructions}</div>
         <div style={{ marginTop: '10px' }}>
-          Captures: {captureCount} / {maxCaptures}
+          Captures: {captureCountRef.current} / {maxCaptures}
         </div>
       </div>
     </div>
