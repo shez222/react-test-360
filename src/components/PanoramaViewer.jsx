@@ -1,86 +1,93 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
 const Camera360View = () => {
   const mountRef = useRef(null);
+  const [capturedImages, setCapturedImages] = useState([]);
+  const sphereRadius = 2;
+  const [photoCaptured, setPhotoCaptured] = useState(false);
 
   useEffect(() => {
     const mount = mountRef.current;
 
-    // Scene, Camera, Renderer
+    // Set up scene, camera, and renderer
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(
-      75,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      1000
-    );
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     mount.appendChild(renderer.domElement);
 
-    // Create video elements for each direction (front, left, right, top, bottom)
-    const videoFront = document.createElement("video");
-    const videoLeft = document.createElement("video");
-    const videoRight = document.createElement("video");
-    const videoTop = document.createElement("video");
-    const videoBottom = document.createElement("video");
+    // OrbitControls for user interaction
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableZoom = true;
+    camera.position.set(0, 0, 0); // Camera stays at the center of the sphere
 
-    videoFront.autoplay = videoLeft.autoplay = videoRight.autoplay = videoTop.autoplay = videoBottom.autoplay = true;
-    videoFront.muted = videoLeft.muted = videoRight.muted = videoTop.muted = videoBottom.muted = true;
-    videoFront.playsInline = videoLeft.playsInline = videoRight.playsInline = videoTop.playsInline = videoBottom.playsInline = true;
+    // Create the sphere for the background (for visualization)
+    const geometry = new THREE.SphereGeometry(sphereRadius, 32, 32);
+    const material = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, wireframe: true });
+    const sphere = new THREE.Mesh(geometry, material);
+    scene.add(sphere);
 
-    // Use getUserMedia to get camera feed
-    const startCamera = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" }, // Use rear camera
-        });
-        videoFront.srcObject = stream;
-        videoLeft.srcObject = stream;
-        videoRight.srcObject = stream;
-        videoTop.srcObject = stream;
-        videoBottom.srcObject = stream;
-      } catch (err) {
-        console.error("Error accessing camera: ", err);
+    // Function to create red dots around the sphere
+    const pointsMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const pointGeometry = new THREE.SphereGeometry(0.05, 8, 8); // Small points
+    const points = [];
+    const numPoints = 12;
+
+    // Function to generate points on the sphere
+    const generatePoints = () => {
+      for (let i = 0; i < numPoints; i++) {
+        const phi = Math.acos(2 * Math.random() - 1); // Random angle for latitude
+        const theta = Math.random() * Math.PI * 2; // Random angle around the Y-axis
+
+        // Spherical to Cartesian conversion
+        const x = sphereRadius * Math.sin(phi) * Math.cos(theta);
+        const y = sphereRadius * Math.sin(phi) * Math.sin(theta);
+        const z = sphereRadius * Math.cos(phi);
+
+        // Create point and position it
+        const point = new THREE.Mesh(pointGeometry, pointsMaterial);
+        point.position.set(x, y, z);
+        point.userData = { targetPosition: new THREE.Vector3(x, y, z) }; // Store the position
+        points.push(point);
+        scene.add(point);
+
+        // When clicked, take a photo (trigger capture)
+        point.onClick = () => capturePhoto();
       }
     };
 
-    // Start the camera when the component mounts
-    startCamera();
+    // Capture the photo when clicked on a point
+    const capturePhoto = () => {
+      setPhotoCaptured(true);
+      const canvas = renderer.domElement;
+      const dataURL = canvas.toDataURL("image/png");
+      setCapturedImages((prevImages) => [...prevImages, dataURL]);
+      console.log("Captured image:", dataURL); // Log or process image
+    };
 
-    // Create Video Textures
-    const videoTextureFront = new THREE.VideoTexture(videoFront);
-    const videoTextureLeft = new THREE.VideoTexture(videoLeft);
-    const videoTextureRight = new THREE.VideoTexture(videoRight);
-    const videoTextureTop = new THREE.VideoTexture(videoTop);
-    const videoTextureBottom = new THREE.VideoTexture(videoBottom);
+    // Generate red dots on the sphere
+    generatePoints();
 
-    // Create geometry (sphere) and map textures for each part
-    const sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
-    sphereGeometry.scale(-1, 1, 1); // Invert the sphere to apply the texture inside
+    // Event listener for capturing on click
+    renderer.domElement.addEventListener("click", (event) => {
+      const mouse = new THREE.Vector2(
+        (event.clientX / window.innerWidth) * 2 - 1,
+        -(event.clientY / window.innerHeight) * 2 + 1
+      );
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
 
-    // Create materials with different textures for each side of the sphere
-    const materials = [
-      new THREE.MeshBasicMaterial({ map: videoTextureFront }),  // Front
-      new THREE.MeshBasicMaterial({ map: videoTextureBack }),   // Back
-      new THREE.MeshBasicMaterial({ map: videoTextureLeft }),   // Left
-      new THREE.MeshBasicMaterial({ map: videoTextureRight }),  // Right
-      new THREE.MeshBasicMaterial({ map: videoTextureTop }),    // Top
-      new THREE.MeshBasicMaterial({ map: videoTextureBottom })  // Bottom
-    ];
+      // Check for intersections with points (red dots)
+      const intersects = raycaster.intersectObjects(points);
+      if (intersects.length > 0) {
+        const clickedPoint = intersects[0].object;
+        clickedPoint.onClick();
+      }
+    });
 
-    // Create a sphere with 6 materials (for the 6 sides)
-    const sphere = new THREE.Mesh(sphereGeometry, materials);
-    scene.add(sphere);
-
-    // Orbit Controls
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableZoom = true;
-    camera.position.set(0, 0, 0.1);
-
-    // Handle Window Resize
+    // Resize handling
     const onWindowResize = () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -88,7 +95,7 @@ const Camera360View = () => {
     };
     window.addEventListener("resize", onWindowResize);
 
-    // Animation Loop
+    // Render the scene
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
@@ -104,14 +111,146 @@ const Camera360View = () => {
   }, []);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100vh" }}>
-      <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
+    <div>
+      <div ref={mountRef} style={{ width: "100%", height: "100vh" }} />
+      {photoCaptured && (
+        <div style={{ position: "absolute", top: 20, left: 20 }}>
+          <h3>Captured Images:</h3>
+          {capturedImages.map((image, index) => (
+            <img key={index} src={image} alt={`Captured ${index}`} width="100" />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
 
 export default Camera360View;
 
+
+
+
+
+
+
+
+
+
+// import React, { useRef, useEffect } from "react";
+// import * as THREE from "three";
+// import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+
+// const MultiImageSphere = () => {
+//   const mountRef = useRef(null);
+
+//   useEffect(() => {
+//     const mount = mountRef.current;
+
+//     // Scene, Camera, Renderer
+//     const scene = new THREE.Scene();
+//     const camera = new THREE.PerspectiveCamera(
+//       75,
+//       window.innerWidth / window.innerHeight,
+//       0.1,
+//       1000
+//     );
+//     const renderer = new THREE.WebGLRenderer({ antialias: true });
+//     renderer.setSize(window.innerWidth, window.innerHeight);
+//     mount.appendChild(renderer.domElement);
+
+//     // Create Canvas
+//     const canvas = document.createElement("canvas");
+//     const canvasSize = 1024; // Canvas size
+//     const gridSize = 6; // Lower grid size for larger images
+//     canvas.width = canvasSize;
+//     canvas.height = canvasSize;
+//     const ctx = canvas.getContext("2d");
+
+//     // Helper function to load images
+//     const loadImage = (src) => {
+//       return new Promise((resolve) => {
+//         const img = new Image();
+//         img.crossOrigin = "anonymous"; // Avoid CORS issues
+//         img.onload = () => resolve(img);
+//         img.src = src;
+//       });
+//     };
+
+//     // Draw Images on Canvas
+//     const drawImagesOnCanvas = async () => {
+//       const image = await loadImage("https://images.pexels.com/photos/290595/pexels-photo-290595.jpeg");
+
+//       const imageWidth = canvas.width / gridSize;
+//       const imageHeight = canvas.height / gridSize;
+
+//       // You can adjust the image size here directly by scaling the image width and height
+//       const scaledWidth = imageWidth * 1.5; // Increase size by 1.5 times
+//       const scaledHeight = imageHeight * 1.5; // Increase size by 1.5 times
+
+//       // Fill the canvas with larger images in a grid pattern
+//       for (let row = 0; row < gridSize; row++) {
+//         for (let col = 0; col < gridSize; col++) {
+//           ctx.drawImage(
+//             image,
+//             col * imageWidth, // X position
+//             row * imageHeight, // Y position
+//             scaledWidth, // Image width (scaled)
+//             scaledHeight // Image height (scaled)
+//           );
+//         }
+//       }
+//     };
+
+//     // Sphere with canvas texture
+//     const sphereGeometry = new THREE.SphereGeometry(500, 60, 40);
+//     sphereGeometry.scale(-1, 1, 1); // Invert the sphere
+//     const sphereMaterial = new THREE.MeshBasicMaterial({
+//       map: new THREE.CanvasTexture(canvas),
+//     });
+//     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+//     scene.add(sphere);
+
+//     // Orbit Controls
+//     const controls = new OrbitControls(camera, renderer.domElement);
+//     controls.enableZoom = true;
+//     camera.position.set(0, 0, 0.1);
+
+//     // Draw images and update texture
+//     drawImagesOnCanvas().then(() => {
+//       sphereMaterial.map.needsUpdate = true;
+//     });
+
+//     // Handle Window Resize
+//     const onWindowResize = () => {
+//       camera.aspect = window.innerWidth / window.innerHeight;
+//       camera.updateProjectionMatrix();
+//       renderer.setSize(window.innerWidth, window.innerHeight);
+//     };
+//     window.addEventListener("resize", onWindowResize);
+
+//     // Animation Loop
+//     const animate = () => {
+//       requestAnimationFrame(animate);
+//       controls.update();
+//       renderer.render(scene, camera);
+//     };
+//     animate();
+
+//     // Cleanup
+//     return () => {
+//       mount.removeChild(renderer.domElement);
+//       window.removeEventListener("resize", onWindowResize);
+//     };
+//   }, []);
+
+//   return (
+//     <div style={{ position: "relative", width: "100%", height: "100vh" }}>
+//       <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
+//     </div>
+//   );
+// };
+
+// export default MultiImageSphere;
 
 
 
