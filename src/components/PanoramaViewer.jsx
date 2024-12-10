@@ -16,6 +16,10 @@ const PanoramaViewer = () => {
   const markerRef = useRef(null);
   const hiddenCanvasRef = useRef(null);
 
+  // **Moved planeWidth and planeHeight to top-level scope**
+  const planeWidth = 2; // Increased to 2 units
+  const planeHeight = 3; // Increased to 3 units
+
   // Sphere and placement settings
   const sphereRadius = 5;
   const offsetFromSurface = 0.01;
@@ -118,10 +122,7 @@ const PanoramaViewer = () => {
     videoTexture.magFilter = THREE.LinearFilter;
     videoTextureRef.current = videoTexture;
 
-    // Dimensions for the Video Plane
-    const planeWidth = 2; // Increased to 2 units
-    const planeHeight = 3; // Increased to 3 units
-
+    // **Use the top-level planeWidth and planeHeight**
     // Create the Video Plane and Add to Scene
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
@@ -253,7 +254,7 @@ const PanoramaViewer = () => {
         capturedTexture.needsUpdate = true;
 
         // Create a plane for the captured image with FrontSide
-        const capturedPlane = createCapturedPlane(capturedTexture, planeWidth, planeHeight); // planeWidth set to 2
+        const capturedPlane = createCapturedPlane(capturedTexture, planeWidth, planeHeight); // planeWidth and planeHeight are now defined
         capturedPlane.userData.isCaptured = true; // Tag for potential removal/reset
         scene.add(capturedPlane);
 
@@ -302,10 +303,8 @@ const PanoramaViewer = () => {
     });
   };
 
-  // Helper Function to Place Objects on the Sphere
+  // **Ensure placeObjectOnSphere is defined in component scope**
   const placeObjectOnSphere = (obj, azimuthDeg, elevationDeg) => {
-    const sphereRadius = 5;
-    const offsetFromSurface = 0.01;
     const r = sphereRadius - offsetFromSurface;
     const azimuthRad = THREE.MathUtils.degToRad(azimuthDeg);
     const elevationRad = THREE.MathUtils.degToRad(elevationDeg);
@@ -381,6 +380,24 @@ const PanoramaViewer = () => {
           Captures: {captureCount} / {maxCaptures}
         </div>
       </div>
+      {/* Flash Effect */}
+      {/* Optional: Uncomment the following lines to add a flash effect on capture */}
+      {/*
+      {showFlash && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(255,255,255,0.8)',
+            zIndex: 3,
+            pointerEvents: 'none'
+          }}
+        />
+      )}
+      */}
     </div>
   );
 };
