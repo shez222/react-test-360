@@ -22,7 +22,7 @@ const PanoramaViewer = () => {
   const planeHeight = 5; // Adjust as needed for vertical coverage
 
   // Sphere and placement settings
-  const sphereRadius = 5;
+  const sphereRadius = 3;
   const offsetFromSurface = 0.01;
 
   // **Global Configuration**
