@@ -1,11 +1,11 @@
 import React from "react";
-import PanoramaViewerWithDots from "./components/PanoramaViewer";
+import CameraPanorama from "./components/PanoramaViewer";
 import "./index.css";
 
 const App = () => {
   return (
     <div className="App">
-      <PanoramaViewerWithDots />
+      <CameraPanorama />
     </div>
   );
 };
