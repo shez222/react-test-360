@@ -14,6 +14,7 @@ const PanoramaViewer = () => {
   const videoPlaneRef = useRef(null);
   const videoTextureRef = useRef(null);
   const markerRef = useRef(null);
+  const hiddenCanvasRef = useRef(null);
 
   // Sphere and placement settings
   const sphereRadius = 5;
@@ -22,10 +23,10 @@ const PanoramaViewer = () => {
   const [instructions, setInstructions] = useState("Press 'Capture' to take the first image.");
   const [firstCaptureDone, setFirstCaptureDone] = useState(false);
   const [captureCount, setCaptureCount] = useState(0);
-  const maxCaptures = 36; // e.g., 36 captures for 360° (every 10 degrees)
+  const maxCaptures = 36; // 36 captures for 360° (every 10 degrees)
 
   const angleInfoRef = useRef({
-    angleIncrement: 0,
+    angleIncrement: (Math.PI * 2) / maxCaptures, // 0.1745 radians (~10 degrees)
     angleRef: { currentAngle: 0 },
     placeObjectOnSphere: () => {}
   });
@@ -103,9 +104,9 @@ const PanoramaViewer = () => {
     videoTextureRef.current = videoTexture;
 
     // Dimensions for the video and captured planes
-    const planeWidth = 2;
+    const planeWidth = 1; // Adjusted to match arc length for 10° increments
     const planeHeight = 3;
-    const angleIncrement = (planeWidth * 0.95) / sphereRadius; // Slight overlap to prevent gaps
+    const angleIncrement = angleInfoRef.current.angleIncrement; // 0.1745 radians (~10 degrees)
 
     // Create the video plane and add to scene
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
@@ -139,6 +140,12 @@ const PanoramaViewer = () => {
       angleRef,
       placeObjectOnSphere
     };
+
+    // Create a hidden canvas for capturing video frames
+    const hiddenCanvas = document.createElement('canvas');
+    hiddenCanvas.width = video.videoWidth || 640;
+    hiddenCanvas.height = video.videoHeight || 480;
+    hiddenCanvasRef.current = hiddenCanvas;
 
     // Handle window resizing
     const onWindowResize = () => {
@@ -197,11 +204,21 @@ const PanoramaViewer = () => {
     const scene = sceneRef.current;
     const videoPlane = videoPlaneRef.current;
     const marker = markerRef.current;
+    const hiddenCanvas = hiddenCanvasRef.current;
+    const video = videoTextureRef.current.image;
 
-    if (!renderer || !scene || !videoPlane || !marker) return;
+    if (!renderer || !scene || !videoPlane || !marker || !hiddenCanvas || !video) return;
 
     const { angleIncrement, angleRef, placeObjectOnSphere } = angleInfoRef.current;
-    const dataURL = renderer.domElement.toDataURL('image/png');
+
+    // Draw the current video frame onto the hidden canvas
+    const ctx = hiddenCanvas.getContext('2d');
+    hiddenCanvas.width = video.videoWidth || 640;
+    hiddenCanvas.height = video.videoHeight || 480;
+    ctx.drawImage(video, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+    // Get the data URL from the hidden canvas
+    const dataURL = hiddenCanvas.toDataURL('image/png');
 
     return new Promise((resolve) => {
       const img = new Image();
@@ -209,22 +226,22 @@ const PanoramaViewer = () => {
         const capturedTexture = new THREE.Texture(img);
         capturedTexture.needsUpdate = true;
 
-        const planeWidth = 2;
-        const planeHeight = 3;
-        const capturedPlane = createCapturedPlane(capturedTexture, planeWidth, planeHeight);
-
+        const capturedPlane = createCapturedPlane(capturedTexture, 1, 3); // planeWidth = 1, planeHeight = 3
         scene.add(capturedPlane);
         placeObjectOnSphere(capturedPlane, angleRef.currentAngle);
         console.log(`Captured image placed at angle: ${(angleRef.currentAngle * (180 / Math.PI)).toFixed(2)}°`);
 
         // Move to next angle
         angleRef.currentAngle += angleIncrement;
+        if (angleRef.currentAngle >= Math.PI * 2) {
+          angleRef.currentAngle -= Math.PI * 2; // Wrap around
+        }
         placeObjectOnSphere(videoPlane, angleRef.currentAngle);
         placeObjectOnSphere(marker, angleRef.currentAngle);
 
         setCaptureCount((prev) => prev + 1);
 
-        if (angleRef.currentAngle >= Math.PI * 2) {
+        if (captureCount + 1 >= maxCaptures) {
           setInstructions("360° capture completed. Explore your panorama!");
         } else if (!isAuto) {
           setInstructions("Rotate the device to align the red dot with the center. Once aligned, image capture will happen automatically.");
@@ -316,7 +333,7 @@ function createMarker() {
 
 function createCapturedPlane(texture, width, height) {
   const geometry = new THREE.PlaneGeometry(width, height);
-  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+  const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide });
   return new THREE.Mesh(geometry, material);
 }
 
