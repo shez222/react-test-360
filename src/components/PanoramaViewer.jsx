@@ -9,8 +9,7 @@ const SceneView = () => {
   const sceneRef = useRef(null);
   const videoPlaneRef = useRef(null);
   const videoTextureRef = useRef(null);
-  
-  // We'll use this ref to store references to angleIncrement, angleRef and placePlaneOnSphere
+
   const angleInfoRef = useRef({
     angleIncrement: 0,
     angleRef: { currentAngle: 0 },
@@ -18,12 +17,11 @@ const SceneView = () => {
   });
 
   useEffect(() => {
-    // Setup scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x202020);
     sceneRef.current = scene;
 
-    // Setup camera at the center
+    // Setup camera at center
     const camera = new THREE.PerspectiveCamera(
       75,
       mountRef.current.clientWidth / mountRef.current.clientHeight,
@@ -33,13 +31,11 @@ const SceneView = () => {
     camera.position.set(0, 0, 0);
     cameraRef.current = camera;
 
-    // Setup renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Add OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -49,26 +45,21 @@ const SceneView = () => {
     controls.minPolarAngle = 0;
     controls.maxPolarAngle = Math.PI;
 
-    // Add grid helpers on all axes
+    // Grid helpers and axes
     const size = 10;
     const divisions = 10;
-
     const gridXY = new THREE.GridHelper(size, divisions);
     scene.add(gridXY);
-
     const gridYZ = new THREE.GridHelper(size, divisions);
     gridYZ.rotation.z = Math.PI / 2;
     scene.add(gridYZ);
-
     const gridZX = new THREE.GridHelper(size, divisions);
     gridZX.rotation.x = Math.PI / 2;
     scene.add(gridZX);
-
-    // Axes helper
     const axesHelper = new THREE.AxesHelper(10);
     scene.add(axesHelper);
 
-    // Create a large transparent sphere
+    // Transparent sphere
     const sphereRadius = 5;
     const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 64, 64);
     const sphereMaterial = new THREE.MeshBasicMaterial({
@@ -80,13 +71,12 @@ const SceneView = () => {
     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
     scene.add(sphere);
 
-    // Create a video element for the camera feed
+    // Video element for camera feed
     const video = document.createElement('video');
     video.setAttribute('playsinline', '');
     video.autoplay = true;
     video.muted = true;
 
-    // Request user media from the device's back camera
     navigator.mediaDevices
       .getUserMedia({ 
         video: { facingMode: { exact: 'environment' } }, 
@@ -100,59 +90,46 @@ const SceneView = () => {
         console.error('Error accessing back camera: ', err);
       });
 
-    // Create a texture from the video
     const videoTexture = new THREE.VideoTexture(video);
     videoTexture.minFilter = THREE.LinearFilter;
     videoTexture.magFilter = THREE.LinearFilter;
     videoTextureRef.current = videoTexture;
 
-    // Dimensions of each plane
+    // Plane dimensions
     const planeWidth = 1;
     const planeHeight = 0.75; 
     const offsetFromSurface = 0.01;
 
-    // Create a plane geometry to display the camera feed
     const planeGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     const planeMaterial = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
     const videoPlane = new THREE.Mesh(planeGeometry, planeMaterial);
     scene.add(videoPlane);
     videoPlaneRef.current = videoPlane;
 
-    // We'll arrange images along the inside surface of the sphere along a great circle.
-    // The circumference at radius is 2 * π * radius. Each image has width = planeWidth.
-    // angle per image = arcLength/radius = planeWidth/sphereRadius
+    // Angle increment for no-gap placement along the sphere's inner surface
     const angleIncrement = planeWidth / sphereRadius;
     const angleRef = { currentAngle: 0 };
 
-    // Function to place a plane on the inside surface of the sphere at a given angle
+    // Function to place plane at a given angle around the inside of the sphere
     const placePlaneOnSphere = (plane, angle) => {
       const r = sphereRadius - offsetFromSurface;
-      // We'll start at angle=0 being at negative Z direction. At angle=0, plane is at z negative.
       const x = r * Math.sin(angle);
       const z = r * Math.cos(angle);
-      
-      // Place the plane at (x,0,-z) so that at angle=0 it faces inward on negative Z
+      // angle=0 means plane at negative Z inside sphere
       plane.position.set(x, 0, -z);
-
-      // Rotate the plane so it faces the center. Initially, at angle=0, facing inward required rotation.y = Math.PI.
-      // As we rotate around Y by 'angle', we adjust the rotation so it's always facing the center.
-      // Facing inward means the plane's front (its positive Z axis) should point toward center.
-      // Initially at angle=0, rotation.y = Math.PI means it faces inward.
-      // As angle changes, we rotate by (Math.PI - angle) so that the plane always faces inward.
+      // Rotate so it faces inward
       plane.rotation.set(0, Math.PI - angle, 0);
     };
 
     // Place the video plane initially
     placePlaneOnSphere(videoPlane, angleRef.currentAngle);
 
-    // Store these in the ref so captureImage can access them
     angleInfoRef.current = {
       angleIncrement,
       angleRef,
       placePlaneOnSphere
     };
 
-    // Handle window resize
     const onWindowResize = () => {
       camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
       camera.updateProjectionMatrix();
@@ -160,7 +137,6 @@ const SceneView = () => {
     };
     window.addEventListener('resize', onWindowResize, false);
 
-    // Animation loop
     const animate = () => {
       requestAnimationFrame(animate);
       controls.update();
@@ -168,7 +144,6 @@ const SceneView = () => {
     };
     animate();
 
-    // Cleanup on unmount
     return () => {
       window.removeEventListener('resize', onWindowResize);
       if (mountRef.current && renderer.domElement) {
@@ -186,15 +161,11 @@ const SceneView = () => {
     const renderer = rendererRef.current;
     const scene = sceneRef.current;
     const videoPlane = videoPlaneRef.current;
-
     if (!renderer || !scene || !videoPlane) return;
 
     const { angleIncrement, angleRef, placePlaneOnSphere } = angleInfoRef.current;
-
-    // Capture the current view as an image
     const dataURL = renderer.domElement.toDataURL('image/png');
 
-    // Create a texture from the captured image
     const img = new Image();
     img.onload = () => {
       const capturedTexture = new THREE.Texture(img);
@@ -202,18 +173,25 @@ const SceneView = () => {
 
       const planeWidth = 1;
       const planeHeight = 0.75; 
+      // Add slight tint to differentiate captured images
+      const capturedMaterial = new THREE.MeshBasicMaterial({ 
+        map: capturedTexture, 
+        side: THREE.DoubleSide,
+        color: 0xffffff // no tint or set another if needed
+      });
       const capturedGeometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
-      const capturedMaterial = new THREE.MeshBasicMaterial({ map: capturedTexture, side: THREE.DoubleSide });
       const capturedPlane = new THREE.Mesh(capturedGeometry, capturedMaterial);
 
-      // Place the captured plane at the current angle
       const currentAngle = angleRef.currentAngle;
       scene.add(capturedPlane);
+      // Place the captured plane where the video plane currently is
       placePlaneOnSphere(capturedPlane, currentAngle);
 
-      // After placing the captured image, increment the angle so the video plane moves next to it
+      // Move the video plane to the next angle (no gap)
       angleRef.currentAngle += angleIncrement;
       placePlaneOnSphere(videoPlane, angleRef.currentAngle);
+
+      console.log(`Captured image placed at angle: ${currentAngle}, video plane moved to: ${angleRef.currentAngle}`);
     };
     img.src = dataURL;
   };
@@ -258,6 +236,7 @@ const SceneView = () => {
 };
 
 export default SceneView;
+
 
 
 
